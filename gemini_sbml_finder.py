@@ -9,12 +9,93 @@ import time
 from pathlib import Path
 from google import genai
 import requests
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 import xml.etree.ElementTree as ET
 
 
 class GeminiSBMLFinder:
     """Gemini APIを使用してSBMLモデルを検索・取得・評価するクラス"""
+    
+    # データベースURLテンプレート
+    DATABASE_URL_TEMPLATES = {
+        'BiGG_Models': {
+            'base_url': 'http://bigg.ucsd.edu/static/models/{model_id}.xml',
+            'alternative_formats': ['.xml.gz'],
+        },
+        'VMH': {
+            'base_url': 'https://www.vmh.life/files/models/{model_id}.xml',
+            'alternative_formats': [],
+        },
+        'ModelSEED': {
+            'base_url': 'https://modelseed.org/models/{model_id}/sbml',
+            'alternative_formats': [],
+        }
+    }
+    
+    @staticmethod
+    def verify_url_with_http(url: str, timeout: int = 10) -> Tuple[bool, str]:
+        """
+        HTTP HEADリクエストでURLの有効性を検証
+        
+        Args:
+            url: 検証するURL
+            timeout: タイムアウト秒数
+        
+        Returns:
+            (is_valid, message)
+        """
+        try:
+            response = requests.head(
+                url, 
+                timeout=timeout, 
+                allow_redirects=True,
+                headers={'User-Agent': 'Mozilla/5.0'}
+            )
+            
+            if response.status_code == 200:
+                content_type = response.headers.get('Content-Type', '').lower()
+                valid_types = ['application/xml', 'text/xml', 'application/octet-stream', 'application/gzip']
+                
+                if any(vt in content_type for vt in valid_types):
+                    return True, f"OK (Content-Type: {content_type})"
+                else:
+                    return False, f"無効なContent-Type: {content_type}"
+            else:
+                return False, f"HTTPステータス: {response.status_code}"
+                
+        except requests.exceptions.Timeout:
+            return False, "タイムアウト"
+        except requests.exceptions.RequestException as e:
+            return False, f"リクエストエラー: {str(e)}"
+    
+    @staticmethod
+    def validate_downloaded_file(file_path: Path, min_size: int = 1024) -> Tuple[bool, str]:
+        """
+        ダウンロードされたファイルの妥当性を検証
+        
+        Args:
+            file_path: ファイルパス
+            min_size: 最小ファイルサイズ（バイト）
+        
+        Returns:
+            (is_valid, message)
+        """
+        if not file_path.exists():
+            return False, "ファイルが存在しません"
+        
+        file_size = file_path.stat().st_size
+        if file_size < min_size:
+            return False, f"ファイルサイズが小さすぎます: {file_size} bytes"
+        
+        # XMLパース可能性の確認
+        try:
+            tree = ET.parse(file_path)
+            root = tree.getroot()
+            return True, f"有効なXML ({file_size:,} bytes)"
+        except ET.ParseError as e:
+            return False, f"XMLパースエラー: {str(e)}"
+        except Exception as e:
+            return False, f"検証エラー: {str(e)}"
     
     def __init__(self, api_key: str = None):
         """
@@ -61,7 +142,7 @@ class GeminiSBMLFinder:
         for attempt in range(max_retries):
             try:
                 if attempt > 0:
-                    wait_time = 2 ** attempt
+                    wait_time = min(2 ** attempt, 16)  # 最大16秒
                     print(f"  ⏳ {wait_time}秒待機後に再試行... (試行 {attempt + 1}/{max_retries})")
                     time.sleep(wait_time)
                 
@@ -292,7 +373,7 @@ GEM入手可能性が高い種を優先し、priorityフィールドで優先順
     
     def _verify_and_fix_url(self, species_name: str, model_info: Dict) -> Dict:
         """
-        URLを検証し、必要に応じて修正する（高性能モデル使用）
+        URLを検証し、必要に応じて修正する（実際のHTTP検証使用）
         
         Args:
             species_name: 種名
@@ -302,8 +383,51 @@ GEM入手可能性が高い種を優先し、priorityフィールドで優先順
             修正されたモデル情報
         """
         url = model_info.get('download_url', '')
+        model_id = model_info.get('model_id', '')
         
         print(f"  🔍 URL検証中: {url[:80]}...")
+        
+        # まず実際のHTTPリクエストで検証
+        is_valid, message = self.verify_url_with_http(url)
+        
+        if is_valid:
+            print(f"  ✅ URL検証成功: {message}")
+            model_info['url_verified'] = True
+            return model_info
+        else:
+            print(f"  ⚠️  URL検証失敗: {message}")
+            
+            # フォールバック: 既知のデータベースURLテンプレートを試行
+            if model_id:
+                print(f"  🔄 既知のデータベースURLテンプレートを試行中...")
+                
+                for db_name, template_info in self.DATABASE_URL_TEMPLATES.items():
+                    base_url = template_info['base_url'].format(model_id=model_id)
+                    
+                    # 基本URLを試行
+                    is_valid, msg = self.verify_url_with_http(base_url)
+                    if is_valid:
+                        print(f"  ✅ {db_name}で有効なURLを発見: {base_url}")
+                        model_info['download_url'] = base_url
+                        model_info['url_verified'] = True
+                        model_info['source'] = f"{db_name} (自動検出)"
+                        return model_info
+                    
+                    # 代替フォーマットを試行
+                    for alt_format in template_info['alternative_formats']:
+                        alt_url = base_url + alt_format
+                        is_valid, msg = self.verify_url_with_http(alt_url)
+                        if is_valid:
+                            print(f"  ✅ {db_name}で有効なURLを発見: {alt_url}")
+                            model_info['download_url'] = alt_url
+                            model_info['url_verified'] = True
+                            model_info['source'] = f"{db_name} (自動検出, {alt_format})"
+                            return model_info
+                
+                print(f"  ❌ 既知のデータベースでも有効なURLが見つかりませんでした")
+        
+        # 最終手段: Geminiに問い合わせ
+        print(f"  🤖 Geminiに代替URL検索を依頼中...")
         
         verify_prompt = f"""# Task: SBML モデルダウンロードURLの検証と修正
 
@@ -337,32 +461,32 @@ GEM入手可能性が高い種を優先し、priorityフィールドで優先順
 
         response = self._call_gemini(verify_prompt, f"url_verify_{species_name.replace(' ', '_')}", use_pro=True)
         
-        # JSON抽出
-        try:
-            json_start = response.find('```json')
-            if json_start != -1:
-                json_start = response.find('\n', json_start) + 1
-                json_end = response.find('```', json_start)
-                json_str = response[json_start:json_end].strip()
-                verify_data = json.loads(json_str)
-                
-                if verify_data.get('url_valid') and verify_data.get('corrected_url'):
-                    corrected_url = verify_data['corrected_url']
-                    if corrected_url != url:
-                        print(f"  ✅ URL修正: {corrected_url[:80]}...")
-                        model_info['download_url'] = corrected_url
-                        model_info['url_verified'] = True
-                    else:
-                        print(f"  ✅ URL検証済み")
-                        model_info['url_verified'] = True
-                else:
-                    print(f"  ⚠️  URL検証失敗: {verify_data.get('notes', '不明')}")
-                    model_info['url_verified'] = False
+        if response:
+            # JSON抽出
+            try:
+                json_start = response.find('```json')
+                if json_start != -1:
+                    json_start = response.find('\n', json_start) + 1
+                    json_end = response.find('```', json_start)
+                    json_str = response[json_start:json_end].strip()
+                    verify_data = json.loads(json_str)
                     
-        except Exception as e:
-            print(f"  ⚠️  URL検証エラー: {e}")
-            model_info['url_verified'] = False
+                    corrected_url = verify_data.get('corrected_url', '')
+                    if corrected_url:
+                        # Geminiが提案したURLも実際に検証
+                        is_valid, msg = self.verify_url_with_http(corrected_url)
+                        if is_valid:
+                            print(f"  ✅ Gemini提案URLが有効: {corrected_url[:80]}...")
+                            model_info['download_url'] = corrected_url
+                            model_info['url_verified'] = True
+                            return model_info
+                        else:
+                            print(f"  ⚠️  Gemini提案URLも無効: {msg}")
+                        
+            except Exception as e:
+                print(f"  ⚠️  Gemini応答の解析エラー: {e}")
         
+        model_info['url_verified'] = False
         return model_info
     
     def step2_search_sbml_models(self, organisms: Dict[str, str]) -> Dict[str, List[Dict]]:
@@ -641,10 +765,21 @@ GEM入手可能性が高い種を優先し、priorityフィールドで優先順
                         with open(file_path, 'wb') as f:
                             f.write(response.content)
                         
-                        print(f"  ✅ ダウンロード成功: {file_path}")
-                        downloaded_files[species_name] = file_path
-                        download_success = True
-                        break
+                        # ダウンロード後の検証
+                        is_valid, validation_msg = self.validate_downloaded_file(file_path)
+                        if is_valid:
+                            print(f"  ✅ ダウンロード成功: {file_path}")
+                            print(f"  ✅ ファイル検証: {validation_msg}")
+                            downloaded_files[species_name] = file_path
+                            download_success = True
+                            break
+                        else:
+                            print(f"  ⚠️  ファイル検証失敗: {validation_msg}")
+                            file_path.unlink()  # 無効なファイルを削除
+                            if retry < max_download_retries - 1:
+                                continue
+                            else:
+                                raise ValueError(f"ファイル検証失敗: {validation_msg}")
                         
                     except requests.exceptions.RequestException as e:
                         if retry < max_download_retries - 1:
@@ -769,13 +904,37 @@ JSON形式で回答してください：
                 print(f"  ✅ XML検証: OK")
                 print(f"  📏 ファイルサイズ: {stats['file_size']:,} bytes")
                 
-                # Geminiに詳細評価を依頼
+                # COBRApyで基本統計を計算
+                try:
+                    import cobra
+                    model = cobra.io.read_sbml_model(str(file_path))
+                    
+                    basic_stats = {
+                        'genes': len(model.genes),
+                        'reactions': len(model.reactions),
+                        'metabolites': len(model.metabolites),
+                        'compartments': len(model.compartments)
+                    }
+                    
+                    print(f"  📊 COBRApy統計:")
+                    print(f"    遺伝子: {basic_stats['genes']}")
+                    print(f"    反応: {basic_stats['reactions']}")
+                    print(f"    代謝物: {basic_stats['metabolites']}")
+                    
+                except Exception as e:
+                    print(f"  ⚠️  COBRApy解析エラー: {e}")
+                    basic_stats = None
+                
+                # Geminiに詳細評価を依頼（軽量化）
                 with open(file_path, 'r', encoding='utf-8') as f:
                     sbml_content = f.read()
                 
-                # 大きすぎる場合は先頭部分のみ
-                if len(sbml_content) > 50000:
-                    sbml_sample = sbml_content[:50000] + "\n... (truncated)"
+                # ファイルサイズに応じて切り詰め
+                max_chars = 50000
+                if len(sbml_content) > max_chars:
+                    # 先頭1000行を抽出
+                    lines = sbml_content.split('\n')
+                    sbml_sample = '\n'.join(lines[:1000]) + f"\n... (残り{len(lines)-1000}行を省略)"
                 else:
                     sbml_sample = sbml_content
                 
@@ -842,19 +1001,35 @@ JSON形式で回答してください：
 
 詳細に評価してください。"""
                 
+                # リトライ戦略を強化（指数バックオフ: 2s, 4s, 8s, 16s）
                 eval_response = self._call_gemini(
                     eval_prompt, 
                     f"evaluation_{species_name.replace(' ', '_')}",
-                    use_pro=False  # 評価は通常モデルで十分
+                    use_pro=False,
+                    max_retries=4  # リトライ回数を増やす
                 )
                 
                 if not eval_response:
-                    print(f"  ❌ 評価失敗（レスポンスなし）")
-                    evaluations[species_name] = {
-                        'status': 'partial',
-                        'file_path': str(file_path),
-                        'basic_stats': stats
-                    }
+                    print(f"  ⚠️  Gemini評価失敗、簡易評価モードにフォールバック")
+                    # 簡易評価: COBRApyの統計のみ
+                    if basic_stats:
+                        evaluations[species_name] = {
+                            'status': 'simple_evaluation',
+                            'file_path': str(file_path),
+                            'statistics': basic_stats,
+                            'quality': {
+                                'quality_score': 6,  # デフォルトスコア
+                                'evaluation_method': 'COBRApy only (Gemini unavailable)'
+                            },
+                            'basic_stats': stats
+                        }
+                        print(f"  ✅ 簡易評価完了（COBRApyのみ）")
+                    else:
+                        evaluations[species_name] = {
+                            'status': 'partial',
+                            'file_path': str(file_path),
+                            'basic_stats': stats
+                        }
                     continue
                 
                 # JSON抽出
@@ -865,6 +1040,10 @@ JSON形式で回答してください：
                         json_end = eval_response.find('```', json_start)
                         json_str = eval_response[json_start:json_end].strip()
                         eval_data = json.loads(json_str)
+                        
+                        # COBRApyの統計があれば上書き
+                        if basic_stats:
+                            eval_data['statistics'] = basic_stats
                         
                         evaluations[species_name] = {
                             'status': 'success',
