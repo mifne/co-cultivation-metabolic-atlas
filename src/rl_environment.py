@@ -47,6 +47,15 @@ class ConsortiumEnv(gym.Env):
         self.current_step = 0
         self.initial_rubber = simulator.state.rubber_concentration
         
+        # 前ステップのゴム濃度を記録（増分報酬用）
+        self.last_rubber_concentration = self.initial_rubber
+        """
+        Args:
+            simulator: dFBAシミュレーター
+            max_steps: 最大ステップ数
+            target_rubber_degradation: 目標ゴム分解率
+            amino_acid_cost: アミノ酸コスト係数
+        """
         # 種数を動的に取得
         self.n_species = len(simulator.state.species)
         self.species_names = list(simulator.state.species.keys())
@@ -71,16 +80,16 @@ class ConsortiumEnv(gym.Env):
             dtype=np.float32
         )
         
-        # ゴム分解速度（簡略化: 種名に基づいて動的に設定）
+        # ゴム分解速度（Phase 1: 速度を1/10に削減してエピソード長を延長）
         self.rubber_degradation_rates = {}
         for species_name in self.species_names:
             # デフォルト値を設定（種名に応じて調整可能）
             if 'Sphingobium' in species_name or 'Gordonia' in species_name:
-                self.rubber_degradation_rates[species_name] = 0.05  # LCP分解菌
+                self.rubber_degradation_rates[species_name] = 0.005  # LCP分解菌（0.05 -> 0.005）
             elif 'Pseudomonas' in species_name or 'Cupriavidus' in species_name:
-                self.rubber_degradation_rates[species_name] = 0.03  # PHA蓄積菌
+                self.rubber_degradation_rates[species_name] = 0.003  # PHA蓄積菌（0.03 -> 0.003）
             else:
-                self.rubber_degradation_rates[species_name] = 0.02  # 安定化菌
+                self.rubber_degradation_rates[species_name] = 0.002  # 安定化菌（0.02 -> 0.002）
         
         print(f"  🔬 環境設定:")
         print(f"    種数: {self.n_species}")
@@ -108,6 +117,9 @@ class ConsortiumEnv(gym.Env):
         if not hasattr(self, '_initial_rubber_saved'):
             self._initial_rubber_saved = True
             self.initial_rubber = self.simulator.state.rubber_concentration
+        
+        # 前ステップのゴム濃度をリセット
+        self.last_rubber_concentration = self.initial_rubber
         
         # 状態を初期値にリセット
         self.simulator.state.time = 0.0
@@ -226,8 +238,8 @@ class ConsortiumEnv(gym.Env):
             'leucine': action[2] * max_supplement
         }
         
-        # デバッグ出力（最初の5ステップのみ）
-        if self.current_step < 5:
+        # デバッグ出力（最初の10ステップ）
+        if self.current_step < 10:
             print(f"\n  🎮 ステップ{self.current_step}: アクション={action}")
             print(f"    アミノ酸補給: Arg={amino_acid_supplementation['arginine']:.2f}, "
                   f"Trp={amino_acid_supplementation['tryptophan']:.2f}, "
@@ -242,17 +254,29 @@ class ConsortiumEnv(gym.Env):
         # 報酬計算
         reward = self._calculate_reward(state, action)
         
-        # デバッグ出力（最初の5ステップのみ）
-        if self.current_step < 5:
+        # デバッグ出力（最初の10ステップ + 10ステップごと）
+        should_log = self.current_step < 10 or self.current_step % 10 == 0
+        if should_log:
             rubber_degraded_ratio = 1 - (state.rubber_concentration / self.initial_rubber)
             total_biomass = sum(s.biomass for s in state.species.values())
+            rubber_degraded_this_step = self.last_rubber_concentration - state.rubber_concentration
+            
             print(f"    ゴム残量: {state.rubber_concentration:.4f} g/L ({rubber_degraded_ratio*100:.2f}% 分解)")
+            print(f"    今回分解量: {rubber_degraded_this_step:.6f} g/L")
             print(f"    総バイオマス: {total_biomass:.4f} g/L")
             print(f"    報酬: {reward:.2f}")
             
-            # 各種のバイオマスも表示
+            # 各種のバイオマスと増殖速度を表示
             for species_name, species_state in state.species.items():
-                print(f"      {species_name[:20]}: {species_state.biomass:.4f} g/L, growth={species_state.growth_rate:.4f} 1/h")
+                print(f"      {species_name[:20]}: biomass={species_state.biomass:.4f} g/L, μ={species_state.growth_rate:.4f} 1/h")
+            
+            # 主要代謝物濃度を表示
+            key_metabolites = ['glc__D_e', 'arg__L_e', 'trp__L_e', 'leu__L_e', 'nh4_e', 'pi_e', 'o2_e']
+            met_status = []
+            for met_id in key_metabolites:
+                conc = state.metabolites.get(met_id, 0.0)
+                met_status.append(f"{met_id.replace('__L_e', '').replace('__D_e', '').replace('_e', '')}={conc:.2f}")
+            print(f"      代謝物: {', '.join(met_status)} mM")
         
         # 終了条件
         self.current_step += 1
@@ -264,9 +288,9 @@ class ConsortiumEnv(gym.Env):
         # 最大ステップ数による打ち切り
         truncated = self.current_step >= self.max_steps
         
-        # バイオマスが全滅した場合も終了（閾値をさらに緩和）
+        # バイオマスが全滅した場合も終了（Phase 1: 閾値をさらに緩和）
         total_biomass = sum(s.biomass for s in state.species.values())
-        if total_biomass < 0.0001:  # 全バイオマスが0.0001 g/L未満（Phase 1: より寛容に）
+        if total_biomass < 0.00001:  # 全バイオマスが0.00001 g/L未満（0.0001 -> 0.00001）
             terminated = True
             reward = -50.0  # ペナルティ
             print(f"  ⚠️  ステップ{self.current_step}: バイオマス全滅 ({total_biomass:.6f} g/L)")
@@ -293,7 +317,7 @@ class ConsortiumEnv(gym.Env):
     
     def _calculate_reward(self, state: ConsortiumState, action: np.ndarray) -> float:
         """
-        報酬関数
+        報酬関数（増分ベース）
         
         Args:
             state: コンソーシアム状態
@@ -302,10 +326,18 @@ class ConsortiumEnv(gym.Env):
         Returns:
             報酬値
         """
-        # 1. ゴム分解報酬（主要報酬）
-        rubber_degraded = self.initial_rubber - state.rubber_concentration
-        degradation_ratio = rubber_degraded / self.initial_rubber
-        degradation_reward = degradation_ratio * 100  # 0-100点
+        # 1. ゴム分解報酬（増分ベース）- 前ステップからの分解量
+        current_rubber = state.rubber_concentration
+        rubber_degraded_this_step = self.last_rubber_concentration - current_rubber
+        
+        # 増分を正規化（初期量に対する割合）
+        degradation_increment = rubber_degraded_this_step / self.initial_rubber
+        
+        # 増分報酬（0-10点程度）
+        degradation_reward = degradation_increment * 1000  # スケール調整
+        
+        # 前ステップの値を更新
+        self.last_rubber_concentration = current_rubber
         
         # 2. バイオマス多様性報酬（Shannon多様性指数）
         biomasses = np.array([s.biomass for s in state.species.values()])
@@ -328,11 +360,12 @@ class ConsortiumEnv(gym.Env):
         avg_growth = np.mean([max(0, g) for g in growth_rates])  # 負の増殖率は0とする
         growth_reward = avg_growth * 5  # 0-5点程度
         
-        # 4. アミノ酸コストペナルティ
-        amino_acid_penalty = -self.amino_acid_cost * np.sum(action) * 10  # スケール調整
+        # 4. アミノ酸コストペナルティ（使用量に応じて）
+        amino_acid_penalty = -self.amino_acid_cost * np.sum(action)
         
-        # 5. ボーナス: 目標達成
-        if degradation_ratio >= self.target_rubber_degradation:
+        # 5. ボーナス: 目標達成（累積分解率で判定）
+        total_degradation_ratio = (self.initial_rubber - current_rubber) / self.initial_rubber
+        if total_degradation_ratio >= self.target_rubber_degradation:
             bonus = 50.0
         else:
             bonus = 0.0
