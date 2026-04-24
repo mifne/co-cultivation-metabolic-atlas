@@ -135,6 +135,13 @@ class ConsortiumEnv(gym.Env):
             'leucine': action[2] * max_supplement
         }
         
+        # デバッグ出力（最初の数ステップのみ）
+        if self.current_step < 3:
+            print(f"\n  🎮 ステップ{self.current_step}: アクション={action}")
+            print(f"    アミノ酸補給: Arg={amino_acid_supplementation['arginine']:.2f}, "
+                  f"Trp={amino_acid_supplementation['tryptophan']:.2f}, "
+                  f"Leu={amino_acid_supplementation['leucine']:.2f} mM")
+        
         # シミュレーションステップ
         state = self.simulator.step(
             rubber_degradation_rates=self.rubber_degradation_rates,
@@ -143,6 +150,14 @@ class ConsortiumEnv(gym.Env):
         
         # 報酬計算
         reward = self._calculate_reward(state, action)
+        
+        # デバッグ出力（最初の数ステップのみ）
+        if self.current_step < 3:
+            rubber_degraded_ratio = 1 - (state.rubber_concentration / self.initial_rubber)
+            total_biomass = sum(s.biomass for s in state.species.values())
+            print(f"    ゴム残量: {state.rubber_concentration:.4f} g/L ({rubber_degraded_ratio*100:.2f}% 分解)")
+            print(f"    総バイオマス: {total_biomass:.4f} g/L")
+            print(f"    報酬: {reward:.2f}")
         
         # 終了条件
         self.current_step += 1
@@ -154,11 +169,12 @@ class ConsortiumEnv(gym.Env):
         # 最大ステップ数による打ち切り
         truncated = self.current_step >= self.max_steps
         
-        # バイオマスが全滅した場合も終了
+        # バイオマスが全滅した場合も終了（閾値を下げる）
         total_biomass = sum(s.biomass for s in state.species.values())
-        if total_biomass < 0.01:  # 全バイオマスが0.01 g/L未満
+        if total_biomass < 0.001:  # 全バイオマスが0.001 g/L未満（より寛容に）
             terminated = True
             reward = -50.0  # ペナルティ
+            print(f"  ⚠️  ステップ{self.current_step}: バイオマス全滅 ({total_biomass:.6f} g/L)")
         
         # 観測
         obs = self.simulator.get_state_vector()

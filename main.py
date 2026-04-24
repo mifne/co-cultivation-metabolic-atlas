@@ -354,12 +354,15 @@ def train_agent(args):
         amino_acid_cost=args.amino_acid_cost
     )
     
-    # PPOエージェントの作成
+    # PPOエージェントの作成（CPU使用を明示）
     agent = ConsortiumPPOAgent(
         env=env,
         learning_rate=args.learning_rate,
+        device='cpu',  # dFBAシミュレーションではCPU推奨
         verbose=1
     )
+    
+    print(f"\n  💻 計算デバイス: CPU (dFBAボトルネックのため最適)")
     
     # 訓練
     history = agent.train(

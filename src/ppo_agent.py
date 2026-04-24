@@ -29,7 +29,7 @@ class ConsortiumPPOAgent:
         ent_coef: float = 0.01,
         vf_coef: float = 0.5,
         max_grad_norm: float = 0.5,
-        device: str = 'auto',
+        device: str = 'cpu',  # デフォルトでCPU使用（dFBAボトルネックのため）
         verbose: int = 1
     ):
         """
@@ -68,7 +68,7 @@ class ConsortiumPPOAgent:
             verbose=verbose,
             device=device,
             policy_kwargs=dict(
-                net_arch=[dict(pi=[256, 256], vf=[256, 256])]
+                net_arch=dict(pi=[256, 256], vf=[256, 256])  # SB3 v1.8.0以降の形式
             )
         )
         

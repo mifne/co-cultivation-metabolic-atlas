@@ -347,11 +347,21 @@ class dFBASimulator:
             degradation_rates: 各種の分解速度 {species_name: rate [g/gDW/h]}
         """
         total_degradation = 0.0
+        degradation_details = []
         
         for species_name, rate in degradation_rates.items():
             biomass = self.state.species[species_name].biomass
             degradation = rate * biomass * self.dt
             total_degradation += degradation
+            degradation_details.append(f"{species_name[:20]}: {degradation:.6f} g")
+        
+        # デバッグ出力（初回のみ）
+        if not hasattr(self, '_rubber_debug_shown'):
+            print(f"\n  🔬 ゴム分解デバッグ (t={self.state.time:.2f}h):")
+            print(f"    総分解量: {total_degradation:.6f} g")
+            for detail in degradation_details:
+                print(f"    {detail}")
+            self._rubber_debug_shown = True
         
         self.state.rubber_concentration -= total_degradation
         self.state.rubber_concentration = max(0, self.state.rubber_concentration)
