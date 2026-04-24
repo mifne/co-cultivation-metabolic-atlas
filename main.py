@@ -135,12 +135,79 @@ def load_sbml_models(sbml_dir: Path) -> dict:
     return models
 
 
+def select_consortium_models(models: dict) -> dict:
+    """
+    読み込まれたモデルから最適な3種を選定
+    
+    Args:
+        models: 全モデルの辞書
+    
+    Returns:
+        選定された3種のモデル辞書
+    """
+    # 優先順位リスト（ドキュメントに基づく）
+    priority_species = [
+        # LCP分解菌
+        ('Sphingobium_japonicum_iJN1463', 'LCP分解菌'),
+        ('Sphingobium_japonicum', 'LCP分解菌'),
+        
+        # PHA蓄積菌
+        ('Pseudomonas_putida_KT2440', 'PHA蓄積菌'),
+        ('Pseudomonas_putida_KT2440_iJN1462', 'PHA蓄積菌'),
+        ('Escherichia_coli_K12_iML1515', 'PHA蓄積菌（代替）'),
+        
+        # 安定化菌
+        ('Lactobacillus_plantarum_iNF517', '安定化菌'),
+        ('Lactobacillus_plantarum', '安定化菌'),
+        ('Bacillus_subtilis_168_iYO844', '安定化菌（代替）'),
+    ]
+    
+    selected = {}
+    selected_roles = set()
+    
+    print("\n🔍 コンソーシアム用の3種を選定中...")
+    
+    for species_key, role in priority_species:
+        # 役割が既に選定済みならスキップ
+        role_type = role.split('（')[0]  # "PHA蓄積菌（代替）" -> "PHA蓄積菌"
+        if role_type in selected_roles:
+            continue
+        
+        # モデルが存在するか確認
+        if species_key in models:
+            selected[species_key] = models[species_key]
+            selected_roles.add(role_type)
+            print(f"  ✅ {role}: {species_key}")
+            
+            if len(selected) == 3:
+                break
+    
+    if len(selected) < 3:
+        print(f"\n⚠️  優先リストから3種選定できませんでした（{len(selected)}/3）")
+        print(f"  → 利用可能なモデルから補完します")
+        
+        # 不足分を補完
+        for species_name, model in models.items():
+            if species_name not in selected:
+                selected[species_name] = model
+                print(f"  ✅ 補完: {species_name}")
+                
+                if len(selected) == 3:
+                    break
+    
+    if len(selected) < 3:
+        raise ValueError(f"3種のモデルを選定できませんでした（{len(selected)}/3種のみ利用可能）")
+    
+    print(f"\n✅ 最終選定: {len(selected)}種")
+    return selected
+
+
 def setup_simulator(models: dict, use_mock: bool = True) -> dFBASimulator:
     """
     dFBAシミュレーターをセットアップ
     
     Args:
-        models: COBRAモデル辞書
+        models: COBRAモデル辞書（3種）
         use_mock: モックデータを使用するか
     
     Returns:
@@ -181,7 +248,9 @@ def train_agent(args):
     
     # モデルの読み込み
     if args.sbml_dir:
-        models = load_sbml_models(Path(args.sbml_dir))
+        all_models = load_sbml_models(Path(args.sbml_dir))
+        # 3種に絞り込み
+        models = select_consortium_models(all_models)
     else:
         models = create_mock_models()
     
@@ -244,7 +313,9 @@ def evaluate_agent(args):
     
     # モデルの読み込み
     if args.sbml_dir:
-        models = load_sbml_models(Path(args.sbml_dir))
+        all_models = load_sbml_models(Path(args.sbml_dir))
+        # 3種に絞り込み
+        models = select_consortium_models(all_models)
     else:
         models = create_mock_models()
     

@@ -14,9 +14,11 @@ class ConsortiumEnv(gym.Env):
     """
     天然ゴム分解コンソーシアム制御のためのRL環境
     
-    State: [biomass_1, biomass_2, biomass_3, growth_1, growth_2, growth_3, 
+    State: [biomass_1, ..., biomass_n, growth_1, ..., growth_n, 
             isoprene, arg, trp, leu, rubber]
     Action: [arg_supplement, trp_supplement, leu_supplement] (連続値 0-1)
+    
+    Note: 種数nは動的に決定される（通常3種）
     """
     
     metadata = {'render_modes': ['human']}
@@ -45,11 +47,17 @@ class ConsortiumEnv(gym.Env):
         self.current_step = 0
         self.initial_rubber = simulator.state.rubber_concentration
         
-        # 状態空間: 11次元（バイオマス×3 + 増殖速度×3 + 代謝物×4 + ゴム×1）
+        # 種数を動的に取得
+        self.n_species = len(simulator.state.species)
+        self.species_names = list(simulator.state.species.keys())
+        
+        # 状態空間: n_species * 2 + 4 + 1 次元
+        # (バイオマス×n + 増殖速度×n + 代謝物×4 + ゴム×1)
+        obs_dim = self.n_species * 2 + 5  # biomass + growth_rate + 4 metabolites + rubber
         self.observation_space = spaces.Box(
             low=0.0,
             high=np.inf,
-            shape=(11,),
+            shape=(obs_dim,),
             dtype=np.float32
         )
         
@@ -61,12 +69,22 @@ class ConsortiumEnv(gym.Env):
             dtype=np.float32
         )
         
-        # ゴム分解速度（簡略化: 固定値）
-        self.rubber_degradation_rates = {
-            'Gordonia': 0.05,  # g/gDW/h
-            'Nocardia': 0.03,
-            'Rhodococcus': 0.04
-        }
+        # ゴム分解速度（簡略化: 種名に基づいて動的に設定）
+        self.rubber_degradation_rates = {}
+        for species_name in self.species_names:
+            # デフォルト値を設定（種名に応じて調整可能）
+            if 'Sphingobium' in species_name or 'Gordonia' in species_name:
+                self.rubber_degradation_rates[species_name] = 0.05  # LCP分解菌
+            elif 'Pseudomonas' in species_name or 'Cupriavidus' in species_name:
+                self.rubber_degradation_rates[species_name] = 0.03  # PHA蓄積菌
+            else:
+                self.rubber_degradation_rates[species_name] = 0.02  # 安定化菌
+        
+        print(f"  🔬 環境設定:")
+        print(f"    種数: {self.n_species}")
+        print(f"    観測空間: {obs_dim}次元")
+        print(f"    行動空間: 3次元")
+        print(f"    ゴム分解速度: {self.rubber_degradation_rates}")
     
     def reset(
         self,
