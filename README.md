@@ -5,15 +5,19 @@
 
 ## プロジェクト構成
 
-### フェーズ1: GEM準備（Gemini担当）
-- `gemini_task_runner.py`: Gemini APIに自動的にタスクを送信
-- 出力: `gemini_outputs/` ディレクトリに保存
+### フェーズ1: GEM準備（完了）
+- `gemini_sbml_finder.py`: Gemini APIによる自動SBML検索・ダウンロード
+- 出力: `models/sbml/` ディレクトリに保存
+- 選定された3種:
+  1. Sphingobium japonicum (LCP分解)
+  2. Pseudomonas putida KT2440 (PHA蓄積)
+  3. Lactobacillus plantarum (安定化)
 
 ### フェーズ2: 数理モデル設計（完了）
 - MDPとしてのRL環境定義
 - State/Action/Reward関数の設計
 
-### フェーズ3: 実装（Aider担当）
+### フェーズ3: 実装（進行中）
 - dFBAシミュレーター
 - RL環境
 - PPOエージェント学習
@@ -30,13 +34,25 @@ pip install -r requirements.txt
 export GEMINI_API_KEY="your-api-key-here"
 ```
 
-### 3. Geminiタスクの実行
+### 3. SBMLモデルの自動検索・ダウンロード（オプション）
 ```bash
-# デフォルトプロンプトで実行
-python gemini_task_runner.py
+# Geminiによる自動SBML検索
+python gemini_sbml_finder.py
+```
 
-# カスタムプロンプトで実行
-python gemini_task_runner.py --prompt-file custom_prompt.txt --task-name custom_task
+**注**: 既に以下の4種のモデルがダウンロード済みです:
+- Sphingobium japonicum (iJN1463)
+- Pseudomonas putida KT2440 (iJN1462)
+- Lactobacillus plantarum (iNF517)
+- Bacillus subtilis 168 (iYO844)
+
+### 4. dFBA-RLシミュレーションの実行
+```bash
+# 訓練モード
+python main.py train --sbml-dir models/sbml --total-timesteps 100000
+
+# 評価モード
+python main.py evaluate --model-path outputs/ppo_consortium_model.zip --sbml-dir models/sbml
 ```
 
 ## 使用方法

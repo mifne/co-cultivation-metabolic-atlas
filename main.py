@@ -25,7 +25,7 @@ def create_mock_models() -> dict:
     print("⚠️  モックモデルを使用（実際のSBMLファイルを使用する場合は--sbml-dirを指定）")
     
     models = {}
-    species_names = ['Gordonia_polyisoprenivorans', 'Cupriavidus_necator', 'Pseudomonas_putida']
+    species_names = ['Sphingobium_japonicum', 'Pseudomonas_putida_KT2440', 'Lactobacillus_plantarum']
     
     for species in species_names:
         # 簡単なモックモデルを作成

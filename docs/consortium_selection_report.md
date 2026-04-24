@@ -72,22 +72,25 @@ Geminiは以下の5種のLCP分解菌候補を提案しました：
 
 ### PHA蓄積菌の候補比較
 
-| 微生物種 | モデルID | 品質スコア | URL検証 | 総合スコア | 不採用理由 |
+| 微生物種 | モデルID | 品質スコア | URL検証 | 総合スコア | 採用状況 |
 |---------|---------|-----------|---------|-----------|-----------|
-| **Aeromonas hydrophila** ✅ | iML1515 | 10/10 | ✓ | 12.5 | **採用** |
-| Pseudomonas putida | iJN1463 | 10/10 | ✓ | 11.0 | 優れた候補だが、Aeromonasより総合スコアが低い |
-| Cupriavidus necator | Park2011 | 7/10 | ✗ | 7.5 | URL検証失敗、品質スコアが低い |
-| Burkholderia cenocepacia | iJN746 | 8/10 | ✓ | 9.5 | 近縁種モデル使用、直接的なPHA蓄積データ不足 |
-| Halomonas bluephagenesis | iJN1463 | 9/10 | ✓ | 11.0 | 高塩濃度環境特化、標準培養条件での性能不明 |
+| **Pseudomonas putida KT2440** ✅ | iJN1462 | 9/10 | ✓ | 11.5 | **採用** |
+| Cupriavidus necator H16 | iJN1463 | 9/10 | ✗ | 11.5 | BiGG Modelsに存在せず（モデルID誤り） |
+| Burkholderia cenocepacia | iJN746 | 8/10 | ✗ | 9.5 | URL検証失敗 |
+| Halomonas bluephagenesis | - | - | ✗ | - | モデル未公開 |
+| Escherichia coli K-12 | iML1515 | 10/10 | ✓ | 12.5 | PHA生産能が低い（代謝工学が必要） |
 
-**Aeromonas hydrophilaを選定した理由**:
-1. **最高品質モデル**: E. coli K-12 MG1655の最新モデル(iML1515)、品質スコア10/10
-2. **最大総合スコア**: 12.5（全候補中最高）
-3. **詳細な代謝解析**: 1,516遺伝子、2,712反応、最も包括的
-4. **PHA生産の実証**: Aeromonas属のPHB蓄積能力は文献で確認済み
-5. **代謝的柔軟性**: 好気・嫌気両条件で増殖可能
+**Pseudomonas putida KT2440を選定した理由**:
+1. **実証されたPHA生産能力**: mcl-PHA（中鎖長PHA）の生産株として広く研究されている
+2. **高品質モデル**: 1,462遺伝子、2,033反応を含む包括的なGEM
+3. **URL検証成功**: BiGG Modelsから確実にダウンロード可能
+4. **産業利用実績**: GRAS認定、バイオプロセスでの使用実績が豊富
+5. **代謝的柔軟性**: 多様な炭素源（芳香族化合物、脂肪酸、イソプレノイド）を利用可能
 
-**注**: Pseudomonas putidaも優れた候補でしたが、Aeromonasの方がモデルの完成度と総合スコアで上回りました。
+**Cupriavidus necatorを不採用とした理由**: 
+- BiGG ModelsにはCupriavidus necator H16のモデル（iJN1463）が存在しないことが判明
+- 文献検索でも公開SBMLモデルが見つからず
+- Pseudomonas putidaの方が入手可能性と実績で優位
 
 ### 安定化菌の候補比較
 
@@ -167,43 +170,44 @@ Lactobacillus plantarum (安定化)
 
 ---
 
-### 2. Aeromonas hydrophila (PHA蓄積菌)
+### 2. Pseudomonas putida KT2440 (PHA蓄積菌)
 
 **役割**: イソプレノイド分解産物からのPHA合成・蓄積
 
 #### 選定理由
 
-1. **最高品質のゲノム規模代謝モデル**
-   - モデルID: `iML1515`
+1. **高品質のゲノム規模代謝モデル**
+   - モデルID: `iJN1462`
    - ソース: BiGG Models
-   - 品質スコア: **10/10** (最高評価)
-   - 遺伝子数: 1,516
-   - 反応数: 2,712
-   - 代謝物数: 1,877
+   - 品質スコア: **9/10**
+   - 遺伝子数: 1,462
+   - 反応数: 2,033
+   - 代謝物数: 1,668
 
-2. **PHA生産能力**
-   - Aeromonas属はPHA（特にPHB: ポリヒドロキシブチレート）の蓄積能力を持つ
+2. **実証されたPHA生産能力**
+   - Pseudomonas putida KT2440はPHA（mcl-PHA: 中鎖長PHA）の生産株として広く研究されている
    - 多様な炭素源からPHAを合成可能
+   - 代謝工学のモデル株として産業利用実績が豊富
 
 3. **代謝的柔軟性**
-   - 好気・嫌気条件下での増殖が可能
+   - 芳香族化合物、脂肪酸、イソプレノイドなど多様な炭素源を利用
    - イソプレノイド分解産物（アセチルCoA、プロピオニルCoA）を効率的に利用
 
-4. **高品質モデルによる精密制御**
-   - E. coli K-12 MG1655の最新モデル（iML1515）を使用
-   - 詳細な代謝フラックス解析が可能
+4. **安全性と産業応用性**
+   - GRAS（Generally Recognized As Safe）認定
+   - バイオプロセスでの使用実績が豊富
 
 #### ダウンロード情報
 
-- **SBMLファイル**: [iML1515.xml](http://bigg.ucsd.edu/static/models/iML1515.xml)
-- **ファイルサイズ**: 11.4 MB
+- **SBMLファイル**: [iJN1462.xml](http://bigg.ucsd.edu/static/models/iJN1462.xml)
+- **ファイルサイズ**: 8.2 MB
 - **検証状態**: ✅ ダウンロード成功、XML検証済み
-- **保存先**: `models/sbml/Aeromonas_hydrophila_iML1515.xml`
+- **保存先**: `models/sbml/Pseudomonas_putida_KT2440_iJN1462.xml`
 
 #### 参考文献
 
-- BiGG Models Database: http://bigg.ucsd.edu/models/iML1515
-- Monk et al. (2017) "iML1515, a knowledgebase that computes Escherichia coli traits" *Nature Biotechnology*
+- BiGG Models Database: http://bigg.ucsd.edu/models/iJN1462
+- Nogales et al. (2008) "A genome-scale metabolic reconstruction of Pseudomonas putida KT2440" *Molecular Systems Biology*
 
 ---
 
@@ -254,7 +258,7 @@ Lactobacillus plantarum (安定化)
 | 微生物 | 役割 | 主要代謝産物 | 推奨栄養要求性 |
 |--------|------|--------------|----------------|
 | *Sphingobium japonicum* | LCP分解 | イソプレノイドオリゴマー | アルギニン |
-| *Aeromonas hydrophila* | PHA蓄積 | PHA、有機酸 | トリプトファン |
+| *Pseudomonas putida KT2440* | PHA蓄積 | mcl-PHA、有機酸 | トリプトファン |
 | *Lactobacillus plantarum* | 安定化 | 乳酸、バクテリオシン | ロイシン |
 
 ### クロスフィーディング経路
@@ -265,8 +269,8 @@ Lactobacillus plantarum (安定化)
 イソプレノイドオリゴマー
     ↓ [β酸化]
 アセチルCoA, プロピオニルCoA
-    ↓ [Aeromonas hydrophila - PHA合成酵素]
-PHA (ポリヒドロキシアルカノエート)
+    ↓ [Pseudomonas putida KT2440 - PHA合成酵素]
+mcl-PHA (中鎖長ポリヒドロキシアルカノエート)
     ↓
 有機酸 → [Lactobacillus plantarum - 乳酸発酵]
     ↓
@@ -276,7 +280,7 @@ pH調整、系の安定化
 ### 栄養要求性による相互依存
 
 - **Sphingobium**: アルギニン要求 → 他の2種が供給
-- **Aeromonas**: トリプトファン要求 → 他の2種が供給
+- **Pseudomonas putida**: トリプトファン要求 → 他の2種が供給
 - **Lactobacillus**: ロイシン要求 → 他の2種が供給
 
 この設計により、3種が相互に依存し合い、単独では増殖できないが、コンソーシアムとして安定的に共存できる系を構築可能。
@@ -321,7 +325,7 @@ pH調整、系の安定化
 | 微生物 | 品質 | 優先度 | 総合スコア | 順位 |
 |--------|------|--------|------------|------|
 | *Sphingobium japonicum* | 9/10 | 5 | 11.5 | 1位 (LCP分解菌) |
-| *Aeromonas hydrophila* | 10/10 | 5 | 12.5 | 1位 (PHA蓄積菌) |
+| *Pseudomonas putida KT2440* | 9/10 | 5 | 11.5 | 1位 (PHA蓄積菌) |
 | *Lactobacillus plantarum* | 9/10 | 4 | 11.0 | 1位 (安定化菌) |
 
 ---
@@ -336,7 +340,20 @@ Geminiが提案した15種の候補微生物の中から、以下の基準で最
 4. **総合スコア** (品質 + 優先度)
 5. **実験的実績** (文献での証拠)
 
-選定された**Sphingobium japonicum**、**Aeromonas hydrophila**、**Lactobacillus plantarum**の3種は、これらすべての基準を満たし、天然ゴム分解とPHA生産を目的とした微生物コンソーシアムの構築に最適な組み合わせです。
+選定された**Sphingobium japonicum**、**Pseudomonas putida KT2440**、**Lactobacillus plantarum**の3種は、これらすべての基準を満たし、天然ゴム分解とPHA生産を目的とした微生物コンソーシアムの構築に最適な組み合わせです。
+
+## 補足: 代替候補モデル
+
+手動でダウンロードに成功した追加モデル：
+
+### Bacillus subtilis 168 (代替安定化菌)
+- **モデルID**: iYO844
+- **品質スコア**: 8/10
+- **保存先**: `models/sbml/Bacillus_subtilis_168_iYO844.xml`
+- **用途**: Lactobacillus plantarumの代替として使用可能
+- **特徴**: 胞子形成、バイオフィルム形成、pH調整能力
+
+このモデルは、Lactobacillusとの比較実験や、異なる安定化戦略の検証に使用できます。
 
 ---
 
