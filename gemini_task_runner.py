@@ -40,26 +40,39 @@ class GeminiTaskRunner:
             if not available_models:
                 raise ValueError("利用可能なモデルが見つかりません")
             
-            # 優先順位リスト（2026年4月時点、最新モデル優先）
+            # Gemini 3系モデルのみをフィルタ
+            gemini_3_models = [m for m in available_models if 'gemini-3' in m.lower()]
+            
+            if not gemini_3_models:
+                print("⚠️  Gemini 3系モデルが見つかりません")
+                # フォールバック: 1.5系を使用
+                gemini_3_models = available_models
+            
+            # 優先順位リスト（Gemini 3系のみ）
             priority_models = [
                 'gemini-3.1-flash-lite',  # 2026年3月リリース、最速・軽量
-                'gemini-3-pro',            # 高性能モデル（2.5 Proの強化版）
-                'gemini-2.5-flash',        # 高速・効率的
-                'gemini-2.5-pro',          # 大容量コンテキスト（100万トークン）
-                'gemini-1.5-flash-002',    # フォールバック
-                'gemini-1.5-pro-002',      # フォールバック
+                'gemini-3-flash',          # 高速
+                'gemini-3.1-flash',        # 高速
+                'gemini-3-pro',            # 高性能モデル
+                'gemini-3.1-pro',          # 高性能モデル
             ]
             
             # 優先順位に従ってモデルを選択
             for preferred in priority_models:
-                for available in available_models:
-                    if preferred in available:
+                for available in gemini_3_models:
+                    if preferred in available.lower():
                         print(f"✅ 選択されたモデル: {available}")
                         return available
             
-            # フォールバック: 最初に見つかったモデルを使用
-            selected = available_models[0]
-            print(f"⚠️  デフォルトモデルを使用: {selected}")
+            # フォールバック: 最初のGemini 3系モデル
+            if gemini_3_models:
+                selected = gemini_3_models[0]
+                print(f"⚠️  デフォルトGemini 3系モデルを使用: {selected}")
+                return selected
+            
+            # 最終フォールバック
+            selected = available_models[0] if available_models else 'gemini-1.5-flash-002'
+            print(f"⚠️  Gemini 3系が利用不可、フォールバック: {selected}")
             return selected
             
         except Exception as e:
@@ -215,12 +228,12 @@ Please process large SBML files efficiently and provide detailed analysis."""
         print(f"📝 プロンプト長: {len(prompt)} 文字")
         print(f"🤖 使用モデル: {self.model_name}")
         
-        # フォールバックモデルのリスト
+        # フォールバックモデルのリスト（Gemini 3系優先）
         fallback_models = [
             self.model_name,
-            'gemini-2.5-flash',
-            'gemini-2.5-pro',
-            'gemini-1.5-flash-002',
+            'gemini-3.1-flash-lite-preview',
+            'gemini-3-flash',
+            'gemini-3-pro',
         ]
         
         last_error = None

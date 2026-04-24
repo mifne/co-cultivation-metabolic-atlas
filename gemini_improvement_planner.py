@@ -14,13 +14,41 @@ from improvement_plan_prompt import IMPROVEMENT_PLAN_PROMPT
 class ImprovementPlanner:
     """改善計画の立案と評価を行うクラス"""
     
+    def _select_gemini_3_pro(self) -> str:
+        """Gemini 3系のProモデルを選択"""
+        try:
+            models_response = self.client.models.list()
+            available_models = []
+            for model in models_response:
+                model_name = model.name
+                if model_name.startswith('models/'):
+                    model_name = model_name[7:]
+                available_models.append(model_name)
+            
+            # Gemini 3系のProモデルを優先
+            priority = ['gemini-3-pro', 'gemini-3.1-pro', 'gemini-3-flash', 'gemini-3.1-flash']
+            
+            for preferred in priority:
+                for available in available_models:
+                    if preferred in available.lower():
+                        print(f"✅ 改善計画用モデル: {available}")
+                        return available
+            
+            # フォールバック
+            return 'gemini-1.5-pro-002'
+        except Exception as e:
+            print(f"⚠️  モデル選択エラー: {e}")
+            return 'gemini-1.5-pro-002'
+    
     def __init__(self, api_key: str = None):
         self.api_key = api_key or os.environ.get('GEMINI_API_KEY')
         if not self.api_key:
             raise ValueError("GEMINI_API_KEY environment variable not set")
         
         self.client = genai.Client(api_key=self.api_key)
-        self.model_name = 'gemini-2.5-pro'  # 計画立案には高性能モデルを使用
+        
+        # Gemini 3系の高性能モデルを選択
+        self.model_name = self._select_gemini_3_pro()
         
         self.log_dir = Path('gemini_outputs')
         self.log_dir.mkdir(exist_ok=True)

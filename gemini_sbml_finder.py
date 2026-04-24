@@ -97,6 +97,80 @@ class GeminiSBMLFinder:
         except Exception as e:
             return False, f"検証エラー: {str(e)}"
     
+    def _select_gemini_3_model(self, prefer_pro: bool = False) -> str:
+        """
+        Gemini 3系モデルを選択
+        
+        Args:
+            prefer_pro: Proモデルを優先するか
+        
+        Returns:
+            選択されたモデル名
+        """
+        try:
+            print("🔍 Gemini 3系モデルを検索中...")
+            
+            # 利用可能なモデルのリストを取得
+            models_response = self.client.models.list()
+            
+            # モデル名のリストを抽出
+            available_models = []
+            for model in models_response:
+                model_name = model.name
+                # models/ プレフィックスを除去
+                if model_name.startswith('models/'):
+                    model_name = model_name[7:]
+                available_models.append(model_name)
+            
+            # Gemini 3系モデルのみをフィルタ
+            gemini_3_models = [m for m in available_models if 'gemini-3' in m.lower()]
+            
+            if not gemini_3_models:
+                print("⚠️  Gemini 3系モデルが見つかりません。利用可能なモデルから選択します。")
+                gemini_3_models = available_models
+            
+            # 優先順位リスト
+            if prefer_pro:
+                priority_models = [
+                    'gemini-3-pro',
+                    'gemini-3.1-pro',
+                    'gemini-3-flash',
+                    'gemini-3.1-flash',
+                    'gemini-3.1-flash-lite',
+                ]
+            else:
+                priority_models = [
+                    'gemini-3.1-flash-lite',
+                    'gemini-3-flash',
+                    'gemini-3.1-flash',
+                    'gemini-3-pro',
+                    'gemini-3.1-pro',
+                ]
+            
+            # 優先順位に従ってモデルを選択
+            for preferred in priority_models:
+                for available in gemini_3_models:
+                    if preferred in available.lower():
+                        print(f"✅ 選択されたモデル: {available}")
+                        return available
+            
+            # フォールバック: 最初のGemini 3系モデル
+            if gemini_3_models:
+                selected = gemini_3_models[0]
+                print(f"⚠️  デフォルトGemini 3系モデルを使用: {selected}")
+                return selected
+            
+            # 最終フォールバック
+            fallback = 'gemini-1.5-flash-002'
+            print(f"⚠️  Gemini 3系が利用不可、フォールバック: {fallback}")
+            return fallback
+            
+        except Exception as e:
+            print(f"⚠️  モデル選択エラー: {str(e)}")
+            fallback = 'gemini-1.5-flash-002'
+            print(f"📌 フォールバック: {fallback} を使用")
+            return fallback
+    
     def __init__(self, api_key: str = None):
         """
         Args:
@@ -107,8 +181,10 @@ class GeminiSBMLFinder:
             raise ValueError("GEMINI_API_KEY environment variable not set")
         
         self.client = genai.Client(api_key=self.api_key)
-        self.model_name = 'gemini-2.5-flash'
-        self.model_name_pro = 'gemini-2.5-pro'  # URL検証用の高性能モデル
+        
+        # Gemini 3系モデルを優先的に選択
+        self.model_name = self._select_gemini_3_model()
+        self.model_name_pro = self._select_gemini_3_model(prefer_pro=True)
         
         # 出力ディレクトリの作成
         self.output_dir = Path('models/sbml')
