@@ -64,10 +64,10 @@ class ConsortiumEnv(gym.Env):
         # (バイオマス×n + 増殖速度×n + 代謝物×4 + ゴム×1)
         obs_dim = self.n_species * 2 + 5  # biomass + growth_rate + 4 metabolites + rubber
         
-        # 観測空間の上限を設定（NaN/Inf防止）
+        # 【修正】観測空間の上限を調整（バイオマス上限を50に）
         self.observation_space = spaces.Box(
             low=0.0,
-            high=100.0,  # 全ての値を0-100の範囲に制限
+            high=50.0,  # 100 -> 50（バイオマス上限に合わせる）
             shape=(obs_dim,),
             dtype=np.float32
         )
@@ -355,11 +355,11 @@ class ConsortiumEnv(gym.Env):
         if total_biomass < 0.01 or avg_growth < 0.001:
             diversity_reward = -10.0  # バイオマス不足または増殖停止
         else:
-            # 独占ペナルティ: 特定の種が上限（100 g/L）に達している場合
+            # 【修正】独占ペナルティ: 特定の種が上限（50 g/L）に達している場合
             monopoly_penalty = 0.0
             for biomass in biomasses:
-                if biomass > 30.0:  # 30 g/L を超えたら独占とみなす（より厳しく）
-                    monopoly_penalty -= (biomass - 30.0) * 1.0  # ペナルティを2倍に
+                if biomass > 20.0:  # 20 g/L を超えたら独占とみなす（上限50に合わせて調整）
+                    monopoly_penalty -= (biomass - 20.0) * 2.0  # ペナルティを強化
             
             proportions = biomasses / total_biomass
             proportions = proportions[proportions > 1e-6]  # 極小値を除去
