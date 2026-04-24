@@ -6,11 +6,13 @@ Proximal Policy Optimization エージェント
 import torch
 import torch.nn as nn
 from stable_baselines3 import PPO
-from stable_baselines3.common.callbacks import BaseCallback
-from stable_baselines3.common.vec_env import DummyVecEnv
-from typing import Optional, Dict, Any
+from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback, EvalCallback
+from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
+from stable_baselines3.common.monitor import Monitor
+from typing import Optional, Dict, Any, Callable
 import numpy as np
 from pathlib import Path
+import matplotlib.pyplot as plt
 
 
 class ConsortiumPPOAgent:
@@ -29,8 +31,9 @@ class ConsortiumPPOAgent:
         ent_coef: float = 0.01,
         vf_coef: float = 0.5,
         max_grad_norm: float = 0.5,
-        device: str = 'cpu',  # 強制的にCPU使用（dFBAがボトルネックのためGPU効果なし）
-        verbose: int = 1
+        device: str = 'cpu',
+        verbose: int = 1,
+        n_envs: int = 1  # 並列環境数
     ):
         """
         Args:
@@ -48,11 +51,26 @@ class ConsortiumPPOAgent:
             device: 'auto', 'cpu', 'cuda'
             verbose: ログレベル
         """
-        # 環境をベクトル化
-        self.env = DummyVecEnv([lambda: env])
+        # 環境をベクトル化（並列化対応）
+        if n_envs > 1:
+            print(f"  🚀 並列環境を使用: {n_envs}プロセス")
+            # 並列環境の作成（各プロセスで独立したシミュレーター）
+            # 注: envは関数として渡す必要がある
+            if callable(env):
+                self.env = SubprocVecEnv([env for _ in range(n_envs)])
+            else:
+                # envがインスタンスの場合はDummyVecEnvを使用
+                print(f"  ⚠️  envがインスタンスのため、DummyVecEnvを使用")
+                self.env = DummyVecEnv([lambda: env])
+                n_envs = 1
+        else:
+            self.env = DummyVecEnv([lambda: env])
+        
+        self.n_envs = n_envs
         
         # PPOモデルの初期化（CPU強制）
         print(f"  💻 計算デバイス: {device} (dFBAシミュレーションがボトルネックのため)")
+        print(f"  📊 並列環境数: {n_envs}")
         
         self.model = PPO(
             policy='MlpPolicy',
@@ -85,7 +103,12 @@ class ConsortiumPPOAgent:
         self,
         total_timesteps: int = 100000,
         callback: Optional[BaseCallback] = None,
-        log_interval: int = 10
+        log_interval: int = 10,
+        save_freq: int = 10000,
+        save_path: str = 'outputs/checkpoints',
+        eval_freq: int = 5000,
+        eval_env = None,
+        n_eval_episodes: int = 5
     ) -> Dict[str, Any]:
         """
         エージェントを訓練
@@ -94,24 +117,67 @@ class ConsortiumPPOAgent:
             total_timesteps: 総訓練ステップ数
             callback: カスタムコールバック
             log_interval: ログ出力間隔
+            save_freq: チェックポイント保存頻度
+            save_path: チェックポイント保存先
+            eval_freq: 評価頻度
+            eval_env: 評価用環境
+            n_eval_episodes: 評価エピソード数
         
         Returns:
             訓練履歴
         """
-        print(f"🎓 PPOエージェントの訓練を開始 (総ステップ数: {total_timesteps})")
+        print(f"🎓 PPOエージェントの訓練を開始 (総ステップ数: {total_timesteps:,})")
         
-        # カスタムコールバックの設定
-        if callback is None:
-            callback = TrainingCallback(self.training_history)
+        # コールバックのリスト
+        callbacks = []
+        
+        # カスタムコールバック
+        training_callback = TrainingCallback(self.training_history)
+        callbacks.append(training_callback)
+        
+        # チェックポイント保存
+        checkpoint_path = Path(save_path)
+        checkpoint_path.mkdir(parents=True, exist_ok=True)
+        checkpoint_callback = CheckpointCallback(
+            save_freq=save_freq // self.n_envs,  # 並列環境数で調整
+            save_path=str(checkpoint_path),
+            name_prefix='ppo_consortium',
+            save_replay_buffer=False,
+            save_vecnormalize=False
+        )
+        callbacks.append(checkpoint_callback)
+        print(f"  💾 チェックポイント保存: {save_freq:,}ステップごと → {checkpoint_path}")
+        
+        # 評価コールバック（オプション）
+        if eval_env is not None:
+            eval_callback = EvalCallback(
+                eval_env,
+                best_model_save_path=str(checkpoint_path / 'best_model'),
+                log_path=str(checkpoint_path / 'eval_logs'),
+                eval_freq=eval_freq // self.n_envs,
+                n_eval_episodes=n_eval_episodes,
+                deterministic=True,
+                render=False
+            )
+            callbacks.append(eval_callback)
+            print(f"  📊 評価: {eval_freq:,}ステップごと ({n_eval_episodes}エピソード)")
+        
+        # ユーザー指定のコールバックを追加
+        if callback is not None:
+            callbacks.append(callback)
         
         # 訓練実行
         self.model.learn(
             total_timesteps=total_timesteps,
-            callback=callback,
+            callback=callbacks,
             log_interval=log_interval
         )
         
         print("✅ 訓練完了")
+        
+        # 訓練履歴を可視化
+        self.plot_training_history(save_path=checkpoint_path / 'training_curves.png')
+        
         return self.training_history
     
     def predict(
@@ -156,6 +222,85 @@ class ConsortiumPPOAgent:
         """
         self.model = PPO.load(path, env=self.env)
         print(f"📂 モデル読み込み: {path}")
+    
+    def plot_training_history(self, save_path: Optional[Path] = None):
+        """
+        訓練履歴を可視化
+        
+        Args:
+            save_path: 保存先パス（Noneの場合は表示のみ）
+        """
+        if not self.training_history['episode_rewards']:
+            print("⚠️  訓練履歴が空です")
+            return
+        
+        fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+        fig.suptitle('PPO Training History', fontsize=16)
+        
+        # 1. エピソード報酬
+        ax = axes[0, 0]
+        rewards = self.training_history['episode_rewards']
+        ax.plot(rewards, alpha=0.6, label='Episode Reward')
+        # 移動平均
+        if len(rewards) > 10:
+            window = min(50, len(rewards) // 10)
+            moving_avg = np.convolve(rewards, np.ones(window)/window, mode='valid')
+            ax.plot(range(window-1, len(rewards)), moving_avg, 'r-', linewidth=2, label=f'Moving Avg (window={window})')
+        ax.set_xlabel('Episode')
+        ax.set_ylabel('Reward')
+        ax.set_title('Episode Rewards')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        # 2. エピソード長
+        ax = axes[0, 1]
+        lengths = self.training_history['episode_lengths']
+        ax.plot(lengths, alpha=0.6, label='Episode Length')
+        if len(lengths) > 10:
+            window = min(50, len(lengths) // 10)
+            moving_avg = np.convolve(lengths, np.ones(window)/window, mode='valid')
+            ax.plot(range(window-1, len(lengths)), moving_avg, 'r-', linewidth=2, label=f'Moving Avg (window={window})')
+        ax.set_xlabel('Episode')
+        ax.set_ylabel('Steps')
+        ax.set_title('Episode Lengths')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        # 3. ゴム分解率（利用可能な場合）
+        ax = axes[1, 0]
+        if self.training_history['rubber_degradation']:
+            degradation = self.training_history['rubber_degradation']
+            ax.plot(degradation, alpha=0.6, label='Rubber Remaining')
+            ax.set_xlabel('Episode')
+            ax.set_ylabel('Rubber Concentration (g/L)')
+            ax.set_title('Rubber Degradation Progress')
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+        else:
+            ax.text(0.5, 0.5, 'No rubber degradation data', 
+                   ha='center', va='center', transform=ax.transAxes)
+        
+        # 4. 報酬の分布
+        ax = axes[1, 1]
+        if len(rewards) > 0:
+            ax.hist(rewards, bins=30, alpha=0.7, edgecolor='black')
+            ax.axvline(np.mean(rewards), color='r', linestyle='--', linewidth=2, label=f'Mean: {np.mean(rewards):.2f}')
+            ax.axvline(np.median(rewards), color='g', linestyle='--', linewidth=2, label=f'Median: {np.median(rewards):.2f}')
+            ax.set_xlabel('Reward')
+            ax.set_ylabel('Frequency')
+            ax.set_title('Reward Distribution')
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        
+        if save_path:
+            plt.savefig(save_path, dpi=150, bbox_inches='tight')
+            print(f"  📊 訓練曲線を保存: {save_path}")
+        else:
+            plt.show()
+        
+        plt.close()
     
     def evaluate(
         self,

@@ -362,18 +362,36 @@ def train_agent(args):
     total_biomass = sum(s.biomass for s in env.simulator.state.species.values())
     print(f"    初期総バイオマス: {total_biomass:.4f} g/L")
     
-    # PPOエージェントの作成（CPU強制）
+    # 評価用環境の作成（オプション）
+    eval_env = None
+    if args.eval_during_training:
+        eval_simulator = setup_simulator(models, use_mock=(args.sbml_dir is None))
+        eval_env = ConsortiumEnv(
+            simulator=eval_simulator,
+            max_steps=args.max_steps,
+            target_rubber_degradation=args.target_degradation,
+            amino_acid_cost=args.amino_acid_cost
+        )
+        print(f"  📊 訓練中評価を有効化")
+    
+    # PPOエージェントの作成
     agent = ConsortiumPPOAgent(
         env=env,
         learning_rate=args.learning_rate,
-        device='cpu',  # 強制的にCPU（dFBAがボトルネック）
-        verbose=1
+        device='cpu',
+        verbose=1,
+        n_envs=1  # 並列環境は将来的に対応
     )
     
     # 訓練
     history = agent.train(
         total_timesteps=args.total_timesteps,
-        log_interval=args.log_interval
+        log_interval=args.log_interval,
+        save_freq=args.save_freq,
+        save_path=args.output_dir,
+        eval_freq=args.eval_freq if args.eval_during_training else None,
+        eval_env=eval_env,
+        n_eval_episodes=args.eval_episodes
     )
     
     # モデルの保存
@@ -480,8 +498,14 @@ def main():
                              help='出力ディレクトリ')
     train_parser.add_argument('--log-interval', type=int, default=10,
                              help='ログ出力間隔')
+    train_parser.add_argument('--save-freq', type=int, default=10000,
+                             help='チェックポイント保存頻度')
     train_parser.add_argument('--eval-episodes', type=int, default=10,
                              help='評価エピソード数')
+    train_parser.add_argument('--eval-during-training', action='store_true',
+                             help='訓練中に定期的に評価を実行')
+    train_parser.add_argument('--eval-freq', type=int, default=5000,
+                             help='訓練中評価の頻度')
     
     # 評価モード
     eval_parser = subparsers.add_parser('evaluate', help='訓練済みエージェントを評価')
