@@ -7,7 +7,7 @@ import os
 import json
 import time
 from pathlib import Path
-import google.generativeai as genai
+from google import genai
 
 
 class GeminiTaskRunner:
@@ -22,8 +22,8 @@ class GeminiTaskRunner:
         if not self.api_key:
             raise ValueError("GEMINI_API_KEY environment variable not set")
         
-        genai.configure(api_key=self.api_key)
-        self.model = genai.GenerativeModel('gemini-1.5-pro')
+        self.client = genai.Client(api_key=self.api_key)
+        self.model_name = 'gemini-2.0-flash-exp'
         
         # 出力ディレクトリの作成
         self.output_dir = Path('gemini_outputs')
@@ -157,7 +157,10 @@ Please process large SBML files efficiently and provide detailed analysis."""
         
         try:
             # Gemini APIにリクエスト送信
-            response = self.model.generate_content(prompt)
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt
+            )
             
             # レスポンスの処理
             result = {
