@@ -24,50 +24,50 @@ class GeminiTaskRunner:
             print("🔍 利用可能なモデルを検索中...")
             
             # 利用可能なモデルのリストを取得
-            models = self.client.models.list()
+            models_response = self.client.models.list()
             
-            # generateContentをサポートするモデルのみをフィルタ
+            # モデル名のリストを抽出
             available_models = []
-            for model in models:
-                if 'generateContent' in model.supported_generation_methods:
-                    available_models.append({
-                        'name': model.name,
-                        'display_name': model.display_name,
-                        'description': getattr(model, 'description', '')
-                    })
+            for model in models_response:
+                model_name = model.name
+                # models/ プレフィックスを除去
+                if model_name.startswith('models/'):
+                    model_name = model_name[7:]
+                available_models.append(model_name)
+            
+            print(f"📋 利用可能なモデル数: {len(available_models)}")
             
             if not available_models:
-                raise ValueError("generateContentをサポートするモデルが見つかりません")
+                raise ValueError("利用可能なモデルが見つかりません")
             
-            # 優先順位: Flash系 > Pro系（コストパフォーマンス重視）
-            # 最新バージョンを優先
-            priority_keywords = [
-                'flash-2.0',
-                'flash-1.5', 
-                'flash',
-                'pro-2.0',
-                'pro-1.5',
-                'pro'
+            # 優先順位リスト（コストパフォーマンス重視）
+            priority_models = [
+                'gemini-2.0-flash-exp',
+                'gemini-2.0-flash',
+                'gemini-1.5-flash',
+                'gemini-1.5-flash-8b',
+                'gemini-2.0-pro-exp',
+                'gemini-1.5-pro',
             ]
             
-            selected_model = None
-            for keyword in priority_keywords:
-                for model in available_models:
-                    model_name_lower = model['name'].lower()
-                    if keyword in model_name_lower:
-                        selected_model = model['name']
-                        print(f"✅ 選択されたモデル: {model['display_name']} ({model['name']})")
-                        return selected_model
+            # 優先順位に従ってモデルを選択
+            for preferred in priority_models:
+                for available in available_models:
+                    if preferred in available:
+                        print(f"✅ 選択されたモデル: {available}")
+                        return available
             
             # フォールバック: 最初に見つかったモデルを使用
-            selected_model = available_models[0]['name']
-            print(f"⚠️  デフォルトモデルを使用: {available_models[0]['display_name']} ({selected_model})")
-            return selected_model
+            selected = available_models[0]
+            print(f"⚠️  デフォルトモデルを使用: {selected}")
+            return selected
             
         except Exception as e:
             print(f"⚠️  モデル選択エラー: {str(e)}")
-            print("📌 フォールバック: gemini-pro を使用")
-            return 'gemini-pro'
+            # 2024年時点で確実に存在するモデル
+            fallback = 'gemini-1.5-flash-002'
+            print(f"📌 フォールバック: {fallback} を使用")
+            return fallback
     
     def __init__(self, api_key: str = None):
         """
