@@ -99,8 +99,6 @@ class dFBASimulator:
         """
         各モデルの初期培地条件を設定（豊富培地）
         """
-        print("\n  🧪 初期培地条件を設定中...")
-        
         for species_name, model in self.models.items():
             # 豊富培地: 全ての交換反応を開放
             medium = {}
@@ -114,21 +112,16 @@ class dFBASimulator:
             # mediumを設定
             try:
                 model.medium = medium
-                print(f"    ✅ {species_name}: {len(medium)}個の交換反応を開放")
             except Exception as e:
-                print(f"    ⚠️  {species_name}: 培地設定エラー - {e}")
+                pass
             
             # 初期FBAテスト
             try:
                 solution = model.optimize()
-                if solution.status == 'optimal':
-                    print(f"    ✅ {species_name}: 初期FBA成功 (growth={solution.objective_value:.4f})")
-                else:
-                    print(f"    ⚠️  {species_name}: 初期FBA失敗 (status={solution.status})")
-                    # 診断情報を出力
+                if solution.status != 'optimal':
                     self._diagnose_infeasibility(species_name, model)
             except Exception as e:
-                print(f"    ❌ {species_name}: 初期FBAエラー - {e}")
+                pass
     
     def _diagnose_infeasibility(self, species_name: str, model: cobra.Model):
         """

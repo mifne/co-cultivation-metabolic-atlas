@@ -331,20 +331,17 @@ def setup_simulator(models: dict, use_mock: bool = True) -> dFBASimulator:
 
 def train_agent(args):
     """エージェントを訓練"""
-    print("=" * 60)
-    print("🧬 dFBA-RL コンソーシアム制御システム - 訓練モード")
-    print("=" * 60)
+    print("🧬 訓練開始")
     
     # モデルの読み込み
-    if args.sbml_dir:
+    if hasattr(args, 'sbml_dir') and args.sbml_dir:
         all_models = load_sbml_models(Path(args.sbml_dir))
-        # 3種に絞り込み
         models = select_consortium_models(all_models)
     else:
         models = create_mock_models()
     
     # シミュレーターのセットアップ
-    simulator = setup_simulator(models, use_mock=(args.sbml_dir is None))
+    simulator = setup_simulator(models, use_mock=(not hasattr(args, 'sbml_dir') or args.sbml_dir is None))
     
     # RL環境の作成
     env = ConsortiumEnv(
@@ -355,24 +352,18 @@ def train_agent(args):
     )
     
     # 環境のリセット動作を確認
-    print("\n  🔍 環境リセット動作の確認:")
     obs, info = env.reset()
-    print(f"    初期観測ベクトル形状: {obs.shape}")
-    print(f"    初期ゴム濃度: {env.simulator.state.rubber_concentration:.4f} g/L")
-    total_biomass = sum(s.biomass for s in env.simulator.state.species.values())
-    print(f"    初期総バイオマス: {total_biomass:.4f} g/L")
     
     # 評価用環境の作成（オプション）
     eval_env = None
-    if args.eval_during_training:
-        eval_simulator = setup_simulator(models, use_mock=(args.sbml_dir is None))
+    if hasattr(args, 'eval_during_training') and args.eval_during_training:
+        eval_simulator = setup_simulator(models, use_mock=(not hasattr(args, 'sbml_dir') or args.sbml_dir is None))
         eval_env = ConsortiumEnv(
             simulator=eval_simulator,
             max_steps=args.max_steps,
             target_rubber_degradation=args.target_degradation,
             amino_acid_cost=args.amino_acid_cost
         )
-        print(f"  📊 訓練中評価を有効化")
     
     # PPOエージェントの作成
     agent = ConsortiumPPOAgent(
@@ -387,9 +378,9 @@ def train_agent(args):
     history = agent.train(
         total_timesteps=args.total_timesteps,
         log_interval=args.log_interval,
-        save_freq=args.save_freq,
+        save_freq=getattr(args, 'save_freq', 10000),
         save_path=args.output_dir,
-        eval_freq=args.eval_freq if args.eval_during_training else None,
+        eval_freq=getattr(args, 'eval_freq', 5000) if getattr(args, 'eval_during_training', False) else None,
         eval_env=eval_env,
         n_eval_episodes=args.eval_episodes
     )
@@ -430,18 +421,13 @@ def train_agent(args):
     results_path = output_dir / 'evaluation_results.json'
     with open(results_path, 'w') as f:
         json.dump(serializable_results, f, indent=2)
-    print(f"📈 評価結果保存: {results_path}")
     
-    print("=" * 60)
-    print("✅ 訓練完了")
-    print("=" * 60)
+    print(f"✅ 訓練完了: {results_path}")
 
 
 def evaluate_agent(args):
     """訓練済みエージェントを評価"""
-    print("=" * 60)
-    print("📊 dFBA-RL コンソーシアム制御システム - 評価モード")
-    print("=" * 60)
+    print("📊 評価開始")
     
     # モデルの読み込み
     if args.sbml_dir:
@@ -469,9 +455,7 @@ def evaluate_agent(args):
     # 評価
     results = agent.evaluate(n_episodes=args.eval_episodes)
     
-    print("=" * 60)
     print("✅ 評価完了")
-    print("=" * 60)
 
 
 def main():
