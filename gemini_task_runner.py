@@ -40,14 +40,14 @@ class GeminiTaskRunner:
             if not available_models:
                 raise ValueError("利用可能なモデルが見つかりません")
             
-            # 優先順位リスト（コストパフォーマンス重視）
+            # 優先順位リスト（2026年時点、コストパフォーマンス重視）
             priority_models = [
-                'gemini-2.0-flash-exp',
-                'gemini-2.0-flash',
-                'gemini-1.5-flash',
-                'gemini-1.5-flash-8b',
-                'gemini-2.0-pro-exp',
-                'gemini-1.5-pro',
+                'gemini-2.5-flash',
+                'gemini-2.5-pro',
+                'gemini-exp-1206',
+                'gemini-exp-1121',
+                'gemini-1.5-flash-002',
+                'gemini-1.5-pro-002',
             ]
             
             # 優先順位に従ってモデルを選択
@@ -64,7 +64,7 @@ class GeminiTaskRunner:
             
         except Exception as e:
             print(f"⚠️  モデル選択エラー: {str(e)}")
-            # 2024年時点で確実に存在するモデル
+            # 2026年時点で確実に存在するモデル
             fallback = 'gemini-1.5-flash-002'
             print(f"📌 フォールバック: {fallback} を使用")
             return fallback
