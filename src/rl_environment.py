@@ -318,7 +318,7 @@ class ConsortiumEnv(gym.Env):
     
     def _calculate_reward(self, state: ConsortiumState, action: np.ndarray) -> float:
         """
-        報酬関数（増分ベース + 多様性強化）
+        報酬関数（増分ベース + 多様性強化 + FBA失敗ペナルティ）
         
         Args:
             state: コンソーシアム状態
@@ -327,6 +327,12 @@ class ConsortiumEnv(gym.Env):
         Returns:
             報酬値
         """
+        # 【修正】FBA完全失敗時の早期リターン
+        growth_rates = [s.growth_rate for s in state.species.values()]
+        if all(g == 0.0 for g in growth_rates):
+            # 全種が増殖していない = FBA失敗
+            return -50.0
+        
         # 1. ゴム分解報酬（増分ベース）- 前ステップからの分解量
         current_rubber = state.rubber_concentration
         rubber_degraded_this_step = self.last_rubber_concentration - current_rubber
@@ -344,13 +350,17 @@ class ConsortiumEnv(gym.Env):
         biomasses = np.array([s.biomass for s in state.species.values()])
         total_biomass = biomasses.sum()
         
-        # 独占ペナルティ: 特定の種が上限（100 g/L）に達している場合
-        monopoly_penalty = 0.0
-        for biomass in biomasses:
-            if biomass > 30.0:  # 30 g/L を超えたら独占とみなす（より厳しく）
-                monopoly_penalty -= (biomass - 30.0) * 1.0  # ペナルティを2倍に
-        
-        if total_biomass > 0.01:
+        # 【修正】バイオマス不足または増殖停止時のペナルティ
+        avg_growth = np.mean([max(0, g) for g in growth_rates])
+        if total_biomass < 0.01 or avg_growth < 0.001:
+            diversity_reward = -10.0  # バイオマス不足または増殖停止
+        else:
+            # 独占ペナルティ: 特定の種が上限（100 g/L）に達している場合
+            monopoly_penalty = 0.0
+            for biomass in biomasses:
+                if biomass > 30.0:  # 30 g/L を超えたら独占とみなす（より厳しく）
+                    monopoly_penalty -= (biomass - 30.0) * 1.0  # ペナルティを2倍に
+            
             proportions = biomasses / total_biomass
             proportions = proportions[proportions > 1e-6]  # 極小値を除去
             if len(proportions) > 0:
@@ -360,14 +370,10 @@ class ConsortiumEnv(gym.Env):
                 diversity_reward = (diversity / max_diversity) * 30  # 0-30点（強化）
             else:
                 diversity_reward = 0
-        else:
-            diversity_reward = -10  # バイオマス不足ペナルティ
-        
-        diversity_reward += monopoly_penalty
+            
+            diversity_reward += monopoly_penalty
         
         # 3. 増殖速度報酬（全種が増殖していることを奨励）
-        growth_rates = [s.growth_rate for s in state.species.values()]
-        avg_growth = np.mean([max(0, g) for g in growth_rates])  # 負の増殖率は0とする
         growth_reward = avg_growth * 5  # 0-5点程度
         
         # 4. アミノ酸コストペナルティ（使用量に応じて）

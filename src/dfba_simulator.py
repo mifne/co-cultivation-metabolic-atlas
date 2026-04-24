@@ -97,17 +97,18 @@ class dFBASimulator:
     
     def _initialize_medium(self):
         """
-        各モデルの初期培地条件を設定（豊富培地）
+        各モデルの初期培地条件を設定（完全開放版）
         """
         for species_name, model in self.models.items():
-            # 豊富培地: 全ての交換反応を開放
+            # 【修正】全ての取り込み反応を完全に開放
             medium = {}
             
             for rxn in model.exchanges:
                 # 取り込み反応（負の下限）のみを開放
                 if rxn.lower_bound < 0:
-                    # 元の下限を保持（制約を緩めない）
-                    medium[rxn.id] = abs(rxn.lower_bound)
+                    # 【修正】元の下限を保存しつつ、完全に開放
+                    # original_lower = rxn.lower_bound  # 元の値（コメントで保存）
+                    medium[rxn.id] = 1000.0  # 完全開放（abs(rxn.lower_bound) -> 1000.0）
             
             # mediumを設定
             try:
@@ -125,13 +126,13 @@ class dFBASimulator:
     
     def _diagnose_infeasibility(self, species_name: str, model: cobra.Model):
         """
-        FBA失敗の原因を診断
+        FBA失敗の原因を診断（強化版）
         
         Args:
             species_name: 種名
             model: COBRAモデル
         """
-        print(f"    🔍 {species_name} の診断中...")
+        print(f"    🔍 {species_name} の詳細診断中...")
         
         # 1. バイオマス反応の確認
         if model.objective:
@@ -139,16 +140,28 @@ class dFBASimulator:
             print(f"      目的関数: {obj_rxn.id}")
             print(f"      境界: [{obj_rxn.lower_bound}, {obj_rxn.upper_bound}]")
         
-        # 2. 閉じている必須交換反応を探す
+        # 2. 必須交換反応の状態を詳細表示
         essential_metabolites = ['glc__D_e', 'o2_e', 'nh4_e', 'pi_e', 'h2o_e']
+        print(f"      📊 必須代謝物の交換反応:")
         for met_id in essential_metabolites:
             if met_id in self.exchange_reactions[species_name]:
                 rxn_id = self.exchange_reactions[species_name][met_id]
                 rxn = model.reactions.get_by_id(rxn_id)
-                if rxn.lower_bound == 0 and rxn.upper_bound == 0:
-                    print(f"      ⚠️  {met_id} の交換反応が閉じています: {rxn_id}")
+                conc = self.state.metabolites.get(met_id, 0.0)
+                status = "🔴 閉鎖" if (rxn.lower_bound == 0 and rxn.upper_bound == 0) else "🟢 開放"
+                print(f"        {status} {met_id}: 境界=[{rxn.lower_bound:.2f}, {rxn.upper_bound:.2f}], 濃度={conc:.4f} mM")
         
-        # 3. 制約の緩和を試行
+        # 3. 全ての交換反応の統計
+        closed_count = 0
+        open_count = 0
+        for rxn in model.exchanges:
+            if rxn.lower_bound == 0 and rxn.upper_bound == 0:
+                closed_count += 1
+            else:
+                open_count += 1
+        print(f"      交換反応統計: 開放={open_count}, 閉鎖={closed_count}")
+        
+        # 4. 制約の緩和を試行
         print(f"      🔧 制約緩和テスト中...")
         with model:
             # 全ての交換反応を完全に開放
@@ -159,9 +172,11 @@ class dFBASimulator:
             try:
                 solution = model.optimize()
                 if solution.status == 'optimal':
-                    print(f"      ✅ 制約緩和後は最適化成功 → 培地条件が原因")
+                    print(f"      ✅ 制約緩和後は最適化成功（μ={solution.objective_value:.4f}）")
+                    print(f"         → 原因: 取り込み制約が厳しすぎる")
                 else:
-                    print(f"      ❌ 制約緩和後も失敗 → モデル構造の問題")
+                    print(f"      ❌ 制約緩和後も失敗（status: {solution.status}）")
+                    print(f"         → 原因: モデル構造の問題")
             except Exception as e:
                 print(f"      ❌ 制約緩和テストエラー: {e}")
     
@@ -169,10 +184,10 @@ class dFBASimulator:
         self,
         species_name: str,
         metabolite_concentrations: Dict[str, float],
-        max_uptake_rate: float = 20.0
+        max_uptake_rate: float = 50.0  # 20.0 -> 50.0 に引き上げ
     ):
         """
-        代謝物濃度に基づいて取り込み制約を設定
+        代謝物濃度に基づいて取り込み制約を設定（緩和版）
         
         Args:
             species_name: 種名
@@ -181,25 +196,14 @@ class dFBASimulator:
         """
         model = self.models[species_name]
         
-        # 必須基質（炭素源・酸素）のリスト
-        essential_substrates = ['glc__D_e', 'o2_e']
-        
         # 交換反応を探索（複数のID形式に対応）
         for met_id, concentration in metabolite_concentrations.items():
-            # 濃度が極めて低い場合、取り込みを完全に停止
-            if concentration < 0.01:
-                # 必須基質が枯渇した場合は取り込みを完全に閉じる
-                if met_id in essential_substrates:
-                    possible_ids = [met_id]
-                    for possible_id in possible_ids:
-                        if possible_id in self.exchange_reactions[species_name]:
-                            rxn_id = self.exchange_reactions[species_name][possible_id]
-                            try:
-                                rxn = model.reactions.get_by_id(rxn_id)
-                                rxn.lower_bound = 0.0  # 取り込み停止
-                            except KeyError:
-                                continue
-                continue
+            # 【修正】濃度が極めて低い場合でも完全停止しない（微量でも取り込み可能）
+            # 元のコード（削除）:
+            # if concentration < 0.01:
+            #     if met_id in essential_substrates:
+            #         rxn.lower_bound = 0.0
+            #     continue
             
             # 代替IDも試行（例: glc_e と glc__D_e）
             possible_ids = [met_id]
@@ -219,11 +223,11 @@ class dFBASimulator:
                         original_lower = rxn.lower_bound
                         
                         # Monod式による取り込み速度の制限
-                        # 必須基質（glc, o2）は厳しい制約、その他は緩い制約
+                        # 【修正】Km を大幅に下げて、より低濃度で飽和させる
                         if possible_id in ['glc__D_e', 'o2_e']:
-                            Km = 0.1  # 半飽和定数を低く設定（厳しい制約）
+                            Km = 0.01  # 0.1 -> 0.01（10倍緩和）
                         else:
-                            Km = 0.5  # 通常の半飽和定数
+                            Km = 0.1  # 0.5 -> 0.1（5倍緩和）
                         
                         uptake_limit = max_uptake_rate * concentration / (Km + concentration)
                         
