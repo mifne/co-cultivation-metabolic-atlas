@@ -260,8 +260,8 @@ def setup_simulator(models: dict, use_mock: bool = True) -> dFBASimulator:
         # 窒素源
         'nh4_e': 20.0,         # アンモニウム [mM]
         
-        # リン酸（増量: 10 -> 50 mM）
-        'pi_e': 50.0,          # リン酸 [mM]
+        # リン酸（増量: 50 -> 200 mM）
+        'pi_e': 200.0,         # リン酸 [mM]
         
         # 硫黄源
         'so4_e': 5.0,          # 硫酸 [mM]
@@ -298,8 +298,8 @@ def setup_simulator(models: dict, use_mock: bool = True) -> dFBASimulator:
         'lac__L_e': 0.0,       # L-乳酸 [mM]
     }
     
-    # 天然ゴム初期濃度（Phase 1: 100倍に増加してエピソード長を延長）
-    initial_rubber = 1000.0  # g/L（10.0 -> 1000.0）
+    # 【修正】天然ゴム初期濃度を引き下げ（分解速度を上げたため）
+    initial_rubber = 100.0  # g/L（1000.0 -> 100.0）
     
     # タイムステップを長めに設定（FBAの安定性向上）
     dt = 0.5  # 0.5時間 = 30分

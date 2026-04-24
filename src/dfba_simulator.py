@@ -272,6 +272,21 @@ class dFBASimulator:
         """
         model = self.models[species_name]
         
+        # 【修正】必須栄養素の枯渇チェック（FBA実行前）
+        essential_nutrients = ['glc__D_e', 'pi_e', 'nh4_e', 'o2_e']
+        for met_id in essential_nutrients:
+            conc = self.state.metabolites.get(met_id, 0.0)
+            if conc < 0.001:  # 0.001 mM 未満は枯渇とみなす
+                # 増殖速度を0に設定して即座にリターン
+                if not hasattr(self, '_nutrient_depletion_logged'):
+                    self._nutrient_depletion_logged = set()
+                
+                if species_name not in self._nutrient_depletion_logged:
+                    print(f"  ⚠️  {species_name}: {met_id} 枯渇 ({conc:.6f} mM) → 増殖停止")
+                    self._nutrient_depletion_logged.add(species_name)
+                
+                return None
+        
         # FBA成功/失敗カウンター（デバッグ用）
         if not hasattr(self, '_fba_stats'):
             self._fba_stats = {name: {'success': 0, 'failure': 0} for name in self.models.keys()}
@@ -336,9 +351,9 @@ class dFBASimulator:
         dX = growth_rate * species_state.biomass * self.dt
         new_biomass = species_state.biomass + dX
         
-        # 【修正】バイオマスを妥当な範囲にクリップ（0.001 - 20 g/L）
-        # 50 g/L でも高すぎる → 20 g/L に引き下げ
-        new_biomass = np.clip(new_biomass, 0.001, 20.0)
+        # 【修正】バイオマスを妥当な範囲にクリップ（0.001 - 10 g/L）
+        # 20 g/L でも高すぎる → 10 g/L に引き下げ
+        new_biomass = np.clip(new_biomass, 0.001, 10.0)
         
         species_state.biomass = new_biomass
         species_state.growth_rate = growth_rate
@@ -495,10 +510,10 @@ class dFBASimulator:
         """
         state_vec = []
         
-        # 【修正】バイオマス濃度（0-20 g/Lの範囲にクリップ）
+        # 【修正】バイオマス濃度（0-10 g/Lの範囲にクリップ）
         for species_name in sorted(self.models.keys()):
             biomass = self.state.species[species_name].biomass
-            biomass = np.clip(biomass, 0.0, 20.0)
+            biomass = np.clip(biomass, 0.0, 10.0)
             state_vec.append(biomass)
         
         # 【修正】増殖速度（-0.5 - 0.5 1/hの範囲にクリップ）

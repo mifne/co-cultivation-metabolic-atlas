@@ -64,10 +64,10 @@ class ConsortiumEnv(gym.Env):
         # (バイオマス×n + 増殖速度×n + 代謝物×4 + ゴム×1)
         obs_dim = self.n_species * 2 + 5  # biomass + growth_rate + 4 metabolites + rubber
         
-        # 【修正】観測空間の上限を調整（バイオマス上限を20に）
+        # 【修正】観測空間の上限を調整（バイオマス上限を10に）
         self.observation_space = spaces.Box(
             low=0.0,
-            high=20.0,  # 50 -> 20（バイオマス上限に合わせる）
+            high=10.0,  # 20 -> 10（バイオマス上限に合わせる）
             shape=(obs_dim,),
             dtype=np.float32
         )
@@ -80,16 +80,16 @@ class ConsortiumEnv(gym.Env):
             dtype=np.float32
         )
         
-        # 【修正】ゴム分解速度を100倍に引き上げ（学習シグナルを得るため）
+        # 【修正】ゴム分解速度をさらに10倍に引き上げ（学習シグナルを得るため）
         self.rubber_degradation_rates = {}
         for species_name in self.species_names:
             # デフォルト値を設定（種名に応じて調整可能）
             if 'Sphingobium' in species_name or 'Gordonia' in species_name:
-                self.rubber_degradation_rates[species_name] = 0.005  # LCP分解菌（0.00005 -> 0.005）
+                self.rubber_degradation_rates[species_name] = 0.05  # LCP分解菌（0.005 -> 0.05）
             elif 'Pseudomonas' in species_name or 'Cupriavidus' in species_name:
-                self.rubber_degradation_rates[species_name] = 0.003  # PHA蓄積菌（0.00003 -> 0.003）
+                self.rubber_degradation_rates[species_name] = 0.03  # PHA蓄積菌（0.003 -> 0.03）
             else:
-                self.rubber_degradation_rates[species_name] = 0.002  # 安定化菌（0.00002 -> 0.002）
+                self.rubber_degradation_rates[species_name] = 0.02  # 安定化菌（0.002 -> 0.02）
         
         print(f"  🔬 環境設定:")
         print(f"    種数: {self.n_species}")
@@ -355,11 +355,11 @@ class ConsortiumEnv(gym.Env):
         if total_biomass < 0.01 or avg_growth < 0.001:
             diversity_reward = -10.0  # バイオマス不足または増殖停止
         else:
-            # 【修正】独占ペナルティ: 特定の種が上限（20 g/L）に達している場合
+            # 【修正】独占ペナルティ: 特定の種が上限（10 g/L）に達している場合
             monopoly_penalty = 0.0
             for biomass in biomasses:
-                if biomass > 10.0:  # 10 g/L を超えたら独占とみなす（上限20に合わせて調整）
-                    monopoly_penalty -= (biomass - 10.0) * 3.0  # ペナルティをさらに強化
+                if biomass > 5.0:  # 5 g/L を超えたら独占とみなす（上限10に合わせて調整）
+                    monopoly_penalty -= (biomass - 5.0) * 5.0  # ペナルティをさらに強化
             
             proportions = biomasses / total_biomass
             proportions = proportions[proportions > 1e-6]  # 極小値を除去
