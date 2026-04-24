@@ -298,8 +298,8 @@ def setup_simulator(models: dict, use_mock: bool = True) -> dFBASimulator:
         'lac__L_e': 0.0,       # L-乳酸 [mM]
     }
     
-    # 天然ゴム初期濃度（Phase 1: 10倍に増加してエピソード長を延長）
-    initial_rubber = 100.0  # g/L（10.0 -> 100.0）
+    # 天然ゴム初期濃度（Phase 1: 100倍に増加してエピソード長を延長）
+    initial_rubber = 1000.0  # g/L（10.0 -> 1000.0）
     
     # タイムステップを長めに設定（FBAの安定性向上）
     dt = 0.5  # 0.5時間 = 30分
@@ -470,7 +470,7 @@ def main():
     train_parser.add_argument('--sbml-dir', type=str, help='SBMLファイルのディレクトリ')
     train_parser.add_argument('--total-timesteps', type=int, default=100000,
                              help='総訓練ステップ数')
-    train_parser.add_argument('--max-steps', type=int, default=100,
+    train_parser.add_argument('--max-steps', type=int, default=200,
                              help='1エピソードの最大ステップ数')
     train_parser.add_argument('--target-degradation', type=float, default=0.9,
                              help='目標ゴム分解率')
@@ -496,7 +496,7 @@ def main():
     eval_parser.add_argument('--model-path', type=str, required=True,
                             help='訓練済みモデルのパス')
     eval_parser.add_argument('--sbml-dir', type=str, help='SBMLファイルのディレクトリ')
-    eval_parser.add_argument('--max-steps', type=int, default=100,
+    eval_parser.add_argument('--max-steps', type=int, default=200,
                             help='1エピソードの最大ステップ数')
     eval_parser.add_argument('--target-degradation', type=float, default=0.9,
                             help='目標ゴム分解率')

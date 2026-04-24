@@ -181,11 +181,8 @@ class dFBASimulator:
         """
         model = self.models[species_name]
         
-        # 必須基質（炭素源・酸素）の枯渇チェック
-        essential_substrates = {
-            'glc__D_e': metabolite_concentrations.get('glc__D_e', 0.0),
-            'o2_e': metabolite_concentrations.get('o2_e', 0.0)
-        }
+        # 必須基質（炭素源・酸素）のリスト
+        essential_substrates = ['glc__D_e', 'o2_e']
         
         # 交換反応を探索（複数のID形式に対応）
         for met_id, concentration in metabolite_concentrations.items():
@@ -355,7 +352,7 @@ class dFBASimulator:
             flux = solution.fluxes[rxn_id]  # mmol/gDW/h
             
             # フラックスの妥当性チェック（異常値を除外）
-            if abs(flux) > 1000:  # 1000 mmol/gDW/h を超える異常値
+            if abs(flux) > 100:  # 100 mmol/gDW/h を超える異常値を除外（より厳しく）
                 continue
             
             # 環境中の代謝物濃度を更新
@@ -365,11 +362,11 @@ class dFBASimulator:
             
             if met_id in self.state.metabolites:
                 new_concentration = self.state.metabolites[met_id] + delta_concentration
-                # 濃度を物理的に妥当な範囲に制限（0-1000 mM）
-                self.state.metabolites[met_id] = np.clip(new_concentration, 0.0, 1000.0)
+                # 濃度を物理的に妥当な範囲に制限（0-100 mM）
+                self.state.metabolites[met_id] = np.clip(new_concentration, 0.0, 100.0)
             elif delta_concentration > 0:
                 # 新規代謝物の分泌
-                self.state.metabolites[met_id] = min(delta_concentration, 1000.0)
+                self.state.metabolites[met_id] = min(delta_concentration, 100.0)
             
             # 取り込み・分泌速度を記録
             if flux < 0:
