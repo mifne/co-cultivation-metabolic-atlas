@@ -71,6 +71,9 @@ class dFBASimulator:
         
         # 代謝物の交換反応IDマッピング
         self.exchange_reactions = self._identify_exchange_reactions()
+        
+        # モデルの初期培地条件を設定
+        self._initialize_medium()
     
     def _identify_exchange_reactions(self) -> Dict[str, Dict[str, str]]:
         """
@@ -88,14 +91,86 @@ class dFBASimulator:
                     met = list(rxn.metabolites.keys())[0]
                     exchange_map[species_name][met.id] = rxn.id
             
-            # デバッグ: 主要な交換反応を表示
-            key_metabolites = ['glc__D_e', 'arg__L_e', 'trp__L_e', 'leu__L_e', 'o2_e', 'nh4_e', 'pi_e']
-            found_mets = [m for m in key_metabolites if m in exchange_map[species_name]]
-            if len(found_mets) < len(key_metabolites):
-                missing = set(key_metabolites) - set(found_mets)
-                print(f"  ⚠️  {species_name}: 以下の代謝物の交換反応が見つかりません: {missing}")
+            print(f"  📊 {species_name}: {len(exchange_map[species_name])}個の交換反応を検出")
             
         return exchange_map
+    
+    def _initialize_medium(self):
+        """
+        各モデルの初期培地条件を設定（豊富培地）
+        """
+        print("\n  🧪 初期培地条件を設定中...")
+        
+        for species_name, model in self.models.items():
+            # 豊富培地: 全ての交換反応を開放
+            medium = {}
+            
+            for rxn in model.exchanges:
+                # 取り込み反応（負の下限）のみを開放
+                if rxn.lower_bound < 0:
+                    # 元の下限を保持（制約を緩めない）
+                    medium[rxn.id] = abs(rxn.lower_bound)
+            
+            # mediumを設定
+            try:
+                model.medium = medium
+                print(f"    ✅ {species_name}: {len(medium)}個の交換反応を開放")
+            except Exception as e:
+                print(f"    ⚠️  {species_name}: 培地設定エラー - {e}")
+            
+            # 初期FBAテスト
+            try:
+                solution = model.optimize()
+                if solution.status == 'optimal':
+                    print(f"    ✅ {species_name}: 初期FBA成功 (growth={solution.objective_value:.4f})")
+                else:
+                    print(f"    ⚠️  {species_name}: 初期FBA失敗 (status={solution.status})")
+                    # 診断情報を出力
+                    self._diagnose_infeasibility(species_name, model)
+            except Exception as e:
+                print(f"    ❌ {species_name}: 初期FBAエラー - {e}")
+    
+    def _diagnose_infeasibility(self, species_name: str, model: cobra.Model):
+        """
+        FBA失敗の原因を診断
+        
+        Args:
+            species_name: 種名
+            model: COBRAモデル
+        """
+        print(f"    🔍 {species_name} の診断中...")
+        
+        # 1. バイオマス反応の確認
+        if model.objective:
+            obj_rxn = list(model.objective.variables.keys())[0]
+            print(f"      目的関数: {obj_rxn.id}")
+            print(f"      境界: [{obj_rxn.lower_bound}, {obj_rxn.upper_bound}]")
+        
+        # 2. 閉じている必須交換反応を探す
+        essential_metabolites = ['glc__D_e', 'o2_e', 'nh4_e', 'pi_e', 'h2o_e']
+        for met_id in essential_metabolites:
+            if met_id in self.exchange_reactions[species_name]:
+                rxn_id = self.exchange_reactions[species_name][met_id]
+                rxn = model.reactions.get_by_id(rxn_id)
+                if rxn.lower_bound == 0 and rxn.upper_bound == 0:
+                    print(f"      ⚠️  {met_id} の交換反応が閉じています: {rxn_id}")
+        
+        # 3. 制約の緩和を試行
+        print(f"      🔧 制約緩和テスト中...")
+        with model:
+            # 全ての交換反応を完全に開放
+            for rxn in model.exchanges:
+                rxn.lower_bound = -1000
+                rxn.upper_bound = 1000
+            
+            try:
+                solution = model.optimize()
+                if solution.status == 'optimal':
+                    print(f"      ✅ 制約緩和後は最適化成功 → 培地条件が原因")
+                else:
+                    print(f"      ❌ 制約緩和後も失敗 → モデル構造の問題")
+            except Exception as e:
+                print(f"      ❌ 制約緩和テストエラー: {e}")
     
     def set_uptake_constraints(
         self,
@@ -115,6 +190,10 @@ class dFBASimulator:
         
         # 交換反応を探索（複数のID形式に対応）
         for met_id, concentration in metabolite_concentrations.items():
+            # 濃度が極めて低い場合はスキップ
+            if concentration < 0.001:
+                continue
+            
             # 代替IDも試行（例: glc_e と glc__D_e）
             possible_ids = [met_id]
             if '_e' in met_id and '__' not in met_id:
@@ -129,6 +208,9 @@ class dFBASimulator:
                     try:
                         rxn = model.reactions.get_by_id(rxn_id)
                         
+                        # 元の下限を保存
+                        original_lower = rxn.lower_bound
+                        
                         # Monod式による取り込み速度の制限
                         Km = 0.5  # 半飽和定数 [mM]
                         uptake_limit = max_uptake_rate * concentration / (Km + concentration)
@@ -136,14 +218,16 @@ class dFBASimulator:
                         # 取り込み反応の下限を設定（負の値 = 取り込み）
                         new_lower_bound = -uptake_limit
                         
+                        # 元の下限より緩い制約のみ適用（制約を強めない）
+                        if new_lower_bound > original_lower:
+                            new_lower_bound = original_lower
+                        
                         # 境界値の妥当性をチェック
                         if new_lower_bound > rxn.upper_bound:
-                            # lower_boundがupper_boundより大きくならないように調整
                             new_lower_bound = rxn.upper_bound
                         
-                        # 元の下限より制限的にならないようにする
-                        if new_lower_bound < rxn.lower_bound:
-                            new_lower_bound = rxn.lower_bound
+                        # 安全な範囲に制限
+                        new_lower_bound = max(new_lower_bound, -1000.0)
                         
                         rxn.lower_bound = new_lower_bound
                         
@@ -184,6 +268,15 @@ class dFBASimulator:
                 return solution
             else:
                 print(f"⚠️  {species_name}: FBA最適化失敗 (status: {solution.status})")
+                
+                # 初回失敗時のみ詳細診断（ログの氾濫を防ぐ）
+                if not hasattr(self, '_diagnosed'):
+                    self._diagnosed = set()
+                
+                if species_name not in self._diagnosed:
+                    self._diagnose_infeasibility(species_name, model)
+                    self._diagnosed.add(species_name)
+                
                 return None
                 
         except Exception as e:
