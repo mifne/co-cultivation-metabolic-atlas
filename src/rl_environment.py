@@ -27,8 +27,8 @@ class ConsortiumEnv(gym.Env):
         self,
         simulator: dFBASimulator,
         max_steps: int = 100,
-        target_rubber_degradation: float = 0.9,
-        amino_acid_cost: float = 0.1
+        target_rubber_degradation: float = 0.8,  # 80%分解を目標（より現実的）
+        amino_acid_cost: float = 0.05  # コストを下げて学習を促進
     ):
         """
         Args:
@@ -146,10 +146,19 @@ class ConsortiumEnv(gym.Env):
         
         # 終了条件
         self.current_step += 1
-        terminated = (
-            state.rubber_concentration < self.initial_rubber * (1 - self.target_rubber_degradation)
-        )
+        
+        # ゴム分解率による終了
+        rubber_degraded_ratio = 1 - (state.rubber_concentration / self.initial_rubber)
+        terminated = rubber_degraded_ratio >= self.target_rubber_degradation
+        
+        # 最大ステップ数による打ち切り
         truncated = self.current_step >= self.max_steps
+        
+        # バイオマスが全滅した場合も終了
+        total_biomass = sum(s.biomass for s in state.species.values())
+        if total_biomass < 0.01:  # 全バイオマスが0.01 g/L未満
+            terminated = True
+            reward = -50.0  # ペナルティ
         
         # 観測
         obs = self.simulator.get_state_vector()
@@ -182,28 +191,51 @@ class ConsortiumEnv(gym.Env):
         Returns:
             報酬値
         """
-        # ゴム分解報酬
+        # 1. ゴム分解報酬（主要報酬）
         rubber_degraded = self.initial_rubber - state.rubber_concentration
-        degradation_reward = rubber_degraded / self.initial_rubber * 100
+        degradation_ratio = rubber_degraded / self.initial_rubber
+        degradation_reward = degradation_ratio * 100  # 0-100点
         
-        # バイオマス多様性報酬（Shannon多様性指数）
+        # 2. バイオマス多様性報酬（Shannon多様性指数）
         biomasses = np.array([s.biomass for s in state.species.values()])
         total_biomass = biomasses.sum()
-        if total_biomass > 0:
+        if total_biomass > 0.01:
             proportions = biomasses / total_biomass
-            proportions = proportions[proportions > 0]  # ゼロ除去
-            diversity = -np.sum(proportions * np.log(proportions))
-            diversity_reward = diversity * 10
+            proportions = proportions[proportions > 1e-6]  # 極小値を除去
+            if len(proportions) > 0:
+                diversity = -np.sum(proportions * np.log(proportions + 1e-10))
+                # 3種の場合、最大多様性はlog(3) ≈ 1.099
+                max_diversity = np.log(len(self.species_names))
+                diversity_reward = (diversity / max_diversity) * 20  # 0-20点
+            else:
+                diversity_reward = 0
         else:
-            diversity_reward = 0
+            diversity_reward = -10  # バイオマス不足ペナルティ
         
-        # アミノ酸コストペナルティ
-        amino_acid_penalty = -self.amino_acid_cost * np.sum(action)
+        # 3. 増殖速度報酬（全種が増殖していることを奨励）
+        growth_rates = [s.growth_rate for s in state.species.values()]
+        avg_growth = np.mean([max(0, g) for g in growth_rates])  # 負の増殖率は0とする
+        growth_reward = avg_growth * 5  # 0-5点程度
+        
+        # 4. アミノ酸コストペナルティ
+        amino_acid_penalty = -self.amino_acid_cost * np.sum(action) * 10  # スケール調整
+        
+        # 5. ボーナス: 目標達成
+        if degradation_ratio >= self.target_rubber_degradation:
+            bonus = 50.0
+        else:
+            bonus = 0.0
         
         # 総報酬
-        reward = degradation_reward + diversity_reward + amino_acid_penalty
+        reward = (
+            degradation_reward +
+            diversity_reward +
+            growth_reward +
+            amino_acid_penalty +
+            bonus
+        )
         
-        return reward
+        return float(reward)
     
     def render(self):
         """環境の可視化（簡易版）"""

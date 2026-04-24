@@ -213,20 +213,62 @@ def setup_simulator(models: dict, use_mock: bool = True) -> dFBASimulator:
     Returns:
         dFBASimulator
     """
-    # 初期条件（モデルの種名に基づいて動的に設定）
+    # 初期バイオマス（種ごとに異なる初期値）
     initial_biomass = {}
     for species_name in models.keys():
-        initial_biomass[species_name] = 0.1
+        if 'Sphingobium' in species_name:
+            # LCP分解菌: 少量から開始（ゴム分解が進むと増殖）
+            initial_biomass[species_name] = 0.05
+        elif 'Pseudomonas' in species_name:
+            # PHA蓄積菌: 中程度の初期値
+            initial_biomass[species_name] = 0.1
+        elif 'Lactobacillus' in species_name:
+            # 安定化菌: 多めに開始（pH調整のため）
+            initial_biomass[species_name] = 0.15
+        else:
+            initial_biomass[species_name] = 0.1
     
+    # 初期代謝物濃度（各微生物の代謝特性に基づく）
     initial_metabolites = {
-        'glc_e': 10.0,  # mM
-        'arg_e': 0.5,
-        'trp_e': 0.5,
-        'leu_e': 0.5,
-        'isoprene': 0.0
+        # 主要炭素源
+        'glc__D_e': 20.0,      # グルコース [mM] - 全種が利用可能
+        'glc_e': 20.0,         # 代替ID
+        
+        # アミノ酸（栄養要求性に対応）
+        'arg__L_e': 1.0,       # アルギニン [mM] - Sphingobium要求
+        'arg_e': 1.0,          # 代替ID
+        'trp__L_e': 0.5,       # トリプトファン [mM] - Pseudomonas要求
+        'trp_e': 0.5,          # 代替ID
+        'leu__L_e': 0.8,       # ロイシン [mM] - Lactobacillus要求
+        'leu_e': 0.8,          # 代替ID
+        
+        # 窒素源
+        'nh4_e': 10.0,         # アンモニウム [mM]
+        
+        # リン酸
+        'pi_e': 5.0,           # リン酸 [mM]
+        
+        # 硫黄源
+        'so4_e': 2.0,          # 硫酸 [mM]
+        
+        # 酸素（好気条件）
+        'o2_e': 21.0,          # 酸素 [mM] - 大気飽和濃度
+        
+        # イソプレノイド（初期は0、ゴム分解で生成）
+        'isoprene': 0.0,
+        'isoprenoid': 0.0,
+        
+        # 有機酸（初期は微量）
+        'ac_e': 0.1,           # 酢酸 [mM]
+        'lac__D_e': 0.0,       # 乳酸 [mM] - Lactobacillusが生成
+        'lac_e': 0.0,          # 代替ID
     }
     
+    # 天然ゴム初期濃度
     initial_rubber = 10.0  # g/L
+    
+    # タイムステップを長めに設定（FBAの安定性向上）
+    dt = 0.5  # 0.5時間 = 30分
     
     simulator = dFBASimulator(
         models=models,
@@ -234,8 +276,17 @@ def setup_simulator(models: dict, use_mock: bool = True) -> dFBASimulator:
         initial_metabolites=initial_metabolites,
         initial_rubber=initial_rubber,
         volume=1.0,
-        dt=0.1
+        dt=dt
     )
+    
+    print(f"\n  🧪 初期条件:")
+    print(f"    バイオマス: {initial_biomass}")
+    print(f"    グルコース: {initial_metabolites.get('glc_e', 0):.1f} mM")
+    print(f"    アミノ酸: Arg={initial_metabolites.get('arg_e', 0):.1f}, "
+          f"Trp={initial_metabolites.get('trp_e', 0):.1f}, "
+          f"Leu={initial_metabolites.get('leu_e', 0):.1f} mM")
+    print(f"    天然ゴム: {initial_rubber:.1f} g/L")
+    print(f"    タイムステップ: {dt} h")
     
     return simulator
 
@@ -294,10 +345,26 @@ def train_agent(args):
     # 評価
     results = agent.evaluate(n_episodes=args.eval_episodes)
     
-    # 結果の保存
+    # 結果の保存（numpy型をPython標準型に変換）
+    def convert_to_serializable(obj):
+        """numpy型をJSON serializable型に変換"""
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, (np.float32, np.float64)):
+            return float(obj)
+        elif isinstance(obj, (np.int32, np.int64)):
+            return int(obj)
+        elif isinstance(obj, dict):
+            return {k: convert_to_serializable(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [convert_to_serializable(item) for item in obj]
+        return obj
+    
+    serializable_results = convert_to_serializable(results)
+    
     results_path = output_dir / 'evaluation_results.json'
     with open(results_path, 'w') as f:
-        json.dump(results, f, indent=2)
+        json.dump(serializable_results, f, indent=2)
     print(f"📈 評価結果保存: {results_path}")
     
     print("=" * 60)

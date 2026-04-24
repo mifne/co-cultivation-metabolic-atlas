@@ -93,7 +93,7 @@ class dFBASimulator:
         self,
         species_name: str,
         metabolite_concentrations: Dict[str, float],
-        max_uptake_rate: float = 10.0
+        max_uptake_rate: float = 20.0
     ):
         """
         代謝物濃度に基づいて取り込み制約を設定
@@ -105,17 +105,34 @@ class dFBASimulator:
         """
         model = self.models[species_name]
         
+        # 交換反応を探索（複数のID形式に対応）
         for met_id, concentration in metabolite_concentrations.items():
-            if met_id in self.exchange_reactions[species_name]:
-                rxn_id = self.exchange_reactions[species_name][met_id]
-                rxn = model.reactions.get_by_id(rxn_id)
-                
-                # Monod式による取り込み速度の制限
-                Km = 0.1  # 半飽和定数 [mM]
-                uptake_limit = max_uptake_rate * concentration / (Km + concentration)
-                
-                # 取り込み反応の下限を設定（負の値 = 取り込み）
-                rxn.lower_bound = -uptake_limit
+            # 代替IDも試行（例: glc_e と glc__D_e）
+            possible_ids = [met_id]
+            if '_e' in met_id and '__' not in met_id:
+                # glc_e -> glc__D_e のような変換を試行
+                base = met_id.replace('_e', '')
+                possible_ids.append(f"{base}__D_e")
+                possible_ids.append(f"{base}__L_e")
+            
+            for possible_id in possible_ids:
+                if possible_id in self.exchange_reactions[species_name]:
+                    rxn_id = self.exchange_reactions[species_name][possible_id]
+                    try:
+                        rxn = model.reactions.get_by_id(rxn_id)
+                        
+                        # Monod式による取り込み速度の制限
+                        Km = 0.5  # 半飽和定数 [mM] - より現実的な値
+                        uptake_limit = max_uptake_rate * concentration / (Km + concentration)
+                        
+                        # 取り込み反応の下限を設定（負の値 = 取り込み）
+                        # 元の下限より制限的にならないようにする
+                        new_lower_bound = max(-uptake_limit, rxn.lower_bound)
+                        rxn.lower_bound = new_lower_bound
+                        
+                        break  # 成功したらループを抜ける
+                    except KeyError:
+                        continue
     
     def solve_fba(self, species_name: str) -> Optional[cobra.Solution]:
         """
