@@ -40,14 +40,14 @@ class GeminiTaskRunner:
             if not available_models:
                 raise ValueError("利用可能なモデルが見つかりません")
             
-            # 優先順位リスト（2026年時点、コストパフォーマンス重視）
+            # 優先順位リスト（2026年4月時点、最新モデル優先）
             priority_models = [
-                'gemini-2.5-flash',
-                'gemini-2.5-pro',
-                'gemini-exp-1206',
-                'gemini-exp-1121',
-                'gemini-1.5-flash-002',
-                'gemini-1.5-pro-002',
+                'gemini-3.1-flash-lite',  # 2026年3月リリース、最速・軽量
+                'gemini-3-pro',            # 高性能モデル（2.5 Proの強化版）
+                'gemini-2.5-flash',        # 高速・効率的
+                'gemini-2.5-pro',          # 大容量コンテキスト（100万トークン）
+                'gemini-1.5-flash-002',    # フォールバック
+                'gemini-1.5-pro-002',      # フォールバック
             ]
             
             # 優先順位に従ってモデルを選択
