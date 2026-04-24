@@ -228,40 +228,74 @@ def setup_simulator(models: dict, use_mock: bool = True) -> dFBASimulator:
         else:
             initial_biomass[species_name] = 0.1
     
-    # 初期代謝物濃度（各微生物の代謝特性に基づく）
+    # 初期代謝物濃度（BiGG Modelsの標準IDを使用）
     initial_metabolites = {
-        # 主要炭素源
-        'glc__D_e': 20.0,      # グルコース [mM] - 全種が利用可能
-        'glc_e': 20.0,         # 代替ID
+        # 主要炭素源（BiGG Models標準ID）
+        'glc__D_e': 20.0,      # D-グルコース [mM]
         
-        # アミノ酸（栄養要求性に対応）
-        'arg__L_e': 1.0,       # アルギニン [mM] - Sphingobium要求
-        'arg_e': 1.0,          # 代替ID
-        'trp__L_e': 0.5,       # トリプトファン [mM] - Pseudomonas要求
-        'trp_e': 0.5,          # 代替ID
-        'leu__L_e': 0.8,       # ロイシン [mM] - Lactobacillus要求
-        'leu_e': 0.8,          # 代替ID
+        # アミノ酸（BiGG Models標準ID）
+        'arg__L_e': 2.0,       # L-アルギニン [mM]
+        'trp__L_e': 1.0,       # L-トリプトファン [mM]
+        'leu__L_e': 1.5,       # L-ロイシン [mM]
+        
+        # その他の必須アミノ酸（増殖に必要）
+        'ala__L_e': 1.0,       # L-アラニン [mM]
+        'asn__L_e': 1.0,       # L-アスパラギン [mM]
+        'asp__L_e': 1.0,       # L-アスパラギン酸 [mM]
+        'cys__L_e': 0.5,       # L-システイン [mM]
+        'gln__L_e': 1.0,       # L-グルタミン [mM]
+        'glu__L_e': 1.0,       # L-グルタミン酸 [mM]
+        'gly_e': 1.0,          # グリシン [mM]
+        'his__L_e': 0.5,       # L-ヒスチジン [mM]
+        'ile__L_e': 1.0,       # L-イソロイシン [mM]
+        'lys__L_e': 1.0,       # L-リジン [mM]
+        'met__L_e': 0.5,       # L-メチオニン [mM]
+        'phe__L_e': 0.8,       # L-フェニルアラニン [mM]
+        'pro__L_e': 1.0,       # L-プロリン [mM]
+        'ser__L_e': 1.0,       # L-セリン [mM]
+        'thr__L_e': 1.0,       # L-トレオニン [mM]
+        'tyr__L_e': 0.5,       # L-チロシン [mM]
+        'val__L_e': 1.0,       # L-バリン [mM]
         
         # 窒素源
-        'nh4_e': 10.0,         # アンモニウム [mM]
+        'nh4_e': 20.0,         # アンモニウム [mM]
         
         # リン酸
-        'pi_e': 5.0,           # リン酸 [mM]
+        'pi_e': 10.0,          # リン酸 [mM]
         
         # 硫黄源
-        'so4_e': 2.0,          # 硫酸 [mM]
+        'so4_e': 5.0,          # 硫酸 [mM]
         
         # 酸素（好気条件）
-        'o2_e': 21.0,          # 酸素 [mM] - 大気飽和濃度
+        'o2_e': 21.0,          # 酸素 [mM]
+        
+        # 微量元素
+        'fe2_e': 0.01,         # 鉄(II) [mM]
+        'fe3_e': 0.01,         # 鉄(III) [mM]
+        'ca2_e': 0.5,          # カルシウム [mM]
+        'cl_e': 1.0,           # 塩化物 [mM]
+        'co2_e': 1.0,          # 二酸化炭素 [mM]
+        'cu2_e': 0.001,        # 銅 [mM]
+        'h_e': 0.0001,         # プロトン（pH 7相当）[mM]
+        'h2o_e': 55000.0,      # 水 [mM]
+        'k_e': 5.0,            # カリウム [mM]
+        'mg2_e': 2.0,          # マグネシウム [mM]
+        'mn2_e': 0.01,         # マンガン [mM]
+        'mobd_e': 0.001,       # モリブデン酸 [mM]
+        'na1_e': 10.0,         # ナトリウム [mM]
+        'zn2_e': 0.01,         # 亜鉛 [mM]
+        
+        # ビタミン類
+        'thm_e': 0.01,         # チアミン [mM]
+        'ribflv_e': 0.01,      # リボフラビン [mM]
         
         # イソプレノイド（初期は0、ゴム分解で生成）
         'isoprene': 0.0,
-        'isoprenoid': 0.0,
         
         # 有機酸（初期は微量）
         'ac_e': 0.1,           # 酢酸 [mM]
-        'lac__D_e': 0.0,       # 乳酸 [mM] - Lactobacillusが生成
-        'lac_e': 0.0,          # 代替ID
+        'lac__D_e': 0.0,       # D-乳酸 [mM]
+        'lac__L_e': 0.0,       # L-乳酸 [mM]
     }
     
     # 天然ゴム初期濃度
@@ -281,12 +315,16 @@ def setup_simulator(models: dict, use_mock: bool = True) -> dFBASimulator:
     
     print(f"\n  🧪 初期条件:")
     print(f"    バイオマス: {initial_biomass}")
-    print(f"    グルコース: {initial_metabolites.get('glc_e', 0):.1f} mM")
-    print(f"    アミノ酸: Arg={initial_metabolites.get('arg_e', 0):.1f}, "
-          f"Trp={initial_metabolites.get('trp_e', 0):.1f}, "
-          f"Leu={initial_metabolites.get('leu_e', 0):.1f} mM")
+    print(f"    グルコース: {initial_metabolites.get('glc__D_e', 0):.1f} mM")
+    print(f"    アミノ酸: Arg={initial_metabolites.get('arg__L_e', 0):.1f}, "
+          f"Trp={initial_metabolites.get('trp__L_e', 0):.1f}, "
+          f"Leu={initial_metabolites.get('leu__L_e', 0):.1f} mM")
+    print(f"    窒素源: NH4={initial_metabolites.get('nh4_e', 0):.1f} mM")
+    print(f"    リン酸: Pi={initial_metabolites.get('pi_e', 0):.1f} mM")
+    print(f"    酸素: O2={initial_metabolites.get('o2_e', 0):.1f} mM")
     print(f"    天然ゴム: {initial_rubber:.1f} g/L")
     print(f"    タイムステップ: {dt} h")
+    print(f"    代謝物総数: {len(initial_metabolites)}種")
     
     return simulator
 

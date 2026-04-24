@@ -87,6 +87,14 @@ class dFBASimulator:
                 if len(rxn.metabolites) == 1:
                     met = list(rxn.metabolites.keys())[0]
                     exchange_map[species_name][met.id] = rxn.id
+            
+            # デバッグ: 主要な交換反応を表示
+            key_metabolites = ['glc__D_e', 'arg__L_e', 'trp__L_e', 'leu__L_e', 'o2_e', 'nh4_e', 'pi_e']
+            found_mets = [m for m in key_metabolites if m in exchange_map[species_name]]
+            if len(found_mets) < len(key_metabolites):
+                missing = set(key_metabolites) - set(found_mets)
+                print(f"  ⚠️  {species_name}: 以下の代謝物の交換反応が見つかりません: {missing}")
+            
         return exchange_map
     
     def set_uptake_constraints(
@@ -122,16 +130,29 @@ class dFBASimulator:
                         rxn = model.reactions.get_by_id(rxn_id)
                         
                         # Monod式による取り込み速度の制限
-                        Km = 0.5  # 半飽和定数 [mM] - より現実的な値
+                        Km = 0.5  # 半飽和定数 [mM]
                         uptake_limit = max_uptake_rate * concentration / (Km + concentration)
                         
                         # 取り込み反応の下限を設定（負の値 = 取り込み）
+                        new_lower_bound = -uptake_limit
+                        
+                        # 境界値の妥当性をチェック
+                        if new_lower_bound > rxn.upper_bound:
+                            # lower_boundがupper_boundより大きくならないように調整
+                            new_lower_bound = rxn.upper_bound
+                        
                         # 元の下限より制限的にならないようにする
-                        new_lower_bound = max(-uptake_limit, rxn.lower_bound)
+                        if new_lower_bound < rxn.lower_bound:
+                            new_lower_bound = rxn.lower_bound
+                        
                         rxn.lower_bound = new_lower_bound
                         
                         break  # 成功したらループを抜ける
                     except KeyError:
+                        continue
+                    except ValueError as e:
+                        # 境界値エラーをキャッチ
+                        print(f"  ⚠️  {species_name}/{rxn_id}: 境界値エラー - {e}")
                         continue
     
     def solve_fba(self, species_name: str) -> Optional[cobra.Solution]:
@@ -266,10 +287,11 @@ class dFBASimulator:
             更新後のコンソーシアム状態
         """
         # アミノ酸補給（0-10 mMの範囲にクリップ）
+        # BiGG Models標準IDを使用
         amino_acid_map = {
-            'arginine': 'arg_e',
-            'tryptophan': 'trp_e',
-            'leucine': 'leu_e'
+            'arginine': 'arg__L_e',
+            'tryptophan': 'trp__L_e',
+            'leucine': 'leu__L_e'
         }
         
         for aa_name, met_id in amino_acid_map.items():
@@ -333,7 +355,7 @@ class dFBASimulator:
             state_vec.append(growth_rate)
         
         # 主要代謝物濃度（0-100 mMの範囲にクリップ）
-        key_metabolites = ['isoprene', 'arg_e', 'trp_e', 'leu_e']
+        key_metabolites = ['isoprene', 'arg__L_e', 'trp__L_e', 'leu__L_e']
         for met_id in key_metabolites:
             conc = self.state.metabolites.get(met_id, 0.0)
             conc = np.clip(conc, 0.0, 100.0)
