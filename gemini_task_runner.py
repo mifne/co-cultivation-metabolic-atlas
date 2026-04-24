@@ -23,7 +23,7 @@ class GeminiTaskRunner:
             raise ValueError("GEMINI_API_KEY environment variable not set")
         
         self.client = genai.Client(api_key=self.api_key)
-        self.model_name = 'gemini-2.0-flash-exp'
+        self.model_name = 'gemini-1.5-flash'
         
         # 出力ディレクトリの作成
         self.output_dir = Path('gemini_outputs')
