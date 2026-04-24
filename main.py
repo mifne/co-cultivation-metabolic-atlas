@@ -25,7 +25,7 @@ def create_mock_models() -> dict:
     print("⚠️  モックモデルを使用（実際のSBMLファイルを使用する場合は--sbml-dirを指定）")
     
     models = {}
-    species_names = ['Gordonia', 'Nocardia', 'Rhodococcus']
+    species_names = ['Gordonia_polyisoprenivorans', 'Cupriavidus_necator', 'Pseudomonas_putida']
     
     for species in species_names:
         # 簡単なモックモデルを作成
@@ -111,12 +111,10 @@ def setup_simulator(models: dict, use_mock: bool = True) -> dFBASimulator:
     Returns:
         dFBASimulator
     """
-    # 初期条件
-    initial_biomass = {
-        'Gordonia': 0.1,
-        'Nocardia': 0.1,
-        'Rhodococcus': 0.1
-    }
+    # 初期条件（モデルの種名に基づいて動的に設定）
+    initial_biomass = {}
+    for species_name in models.keys():
+        initial_biomass[species_name] = 0.1
     
     initial_metabolites = {
         'glc_e': 10.0,  # mM
