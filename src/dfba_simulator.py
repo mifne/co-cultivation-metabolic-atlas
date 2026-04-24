@@ -251,6 +251,10 @@ class dFBASimulator:
         """
         model = self.models[species_name]
         
+        # FBA成功/失敗カウンター（デバッグ用）
+        if not hasattr(self, '_fba_stats'):
+            self._fba_stats = {name: {'success': 0, 'failure': 0} for name in self.models.keys()}
+        
         try:
             solution = model.optimize()
             
@@ -258,15 +262,24 @@ class dFBASimulator:
                 # 解の妥当性をチェック
                 if solution.objective_value < 0:
                     print(f"⚠️  {species_name}: 負の目的関数値 ({solution.objective_value:.4f})")
+                    self._fba_stats[species_name]['failure'] += 1
                     return None
                 
                 # 異常に大きい値をチェック
                 if solution.objective_value > 1000:
                     print(f"⚠️  {species_name}: 異常に大きい目的関数値 ({solution.objective_value:.4f})")
+                    self._fba_stats[species_name]['failure'] += 1
                     return None
+                
+                self._fba_stats[species_name]['success'] += 1
+                
+                # 最初の10回のFBA成功をログ
+                if self._fba_stats[species_name]['success'] <= 10:
+                    print(f"  ✅ {species_name}: FBA成功 (growth={solution.objective_value:.4f} 1/h)")
                 
                 return solution
             else:
+                self._fba_stats[species_name]['failure'] += 1
                 print(f"⚠️  {species_name}: FBA最適化失敗 (status: {solution.status})")
                 
                 # 初回失敗時のみ詳細診断（ログの氾濫を防ぐ）
@@ -280,6 +293,7 @@ class dFBASimulator:
                 return None
                 
         except Exception as e:
+            self._fba_stats[species_name]['failure'] += 1
             print(f"❌ {species_name}: FBA解法エラー: {e}")
             return None
     
@@ -353,15 +367,19 @@ class dFBASimulator:
             biomass = self.state.species[species_name].biomass
             degradation = rate * biomass * self.dt
             total_degradation += degradation
-            degradation_details.append(f"{species_name[:20]}: {degradation:.6f} g")
+            degradation_details.append(f"{species_name[:20]}: {degradation:.6f} g (biomass={biomass:.4f}, rate={rate:.4f})")
         
-        # デバッグ出力（初回のみ）
-        if not hasattr(self, '_rubber_debug_shown'):
-            print(f"\n  🔬 ゴム分解デバッグ (t={self.state.time:.2f}h):")
+        # デバッグ出力を強化（最初の10ステップ）
+        if not hasattr(self, '_rubber_debug_count'):
+            self._rubber_debug_count = 0
+        
+        if self._rubber_debug_count < 10:
+            print(f"\n  🔬 ゴム分解デバッグ (t={self.state.time:.2f}h, ステップ{self._rubber_debug_count}):")
+            print(f"    ゴム残量: {self.state.rubber_concentration:.6f} g/L")
             print(f"    総分解量: {total_degradation:.6f} g")
             for detail in degradation_details:
                 print(f"    {detail}")
-            self._rubber_debug_shown = True
+            self._rubber_debug_count += 1
         
         self.state.rubber_concentration -= total_degradation
         self.state.rubber_concentration = max(0, self.state.rubber_concentration)

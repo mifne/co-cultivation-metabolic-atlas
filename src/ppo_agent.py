@@ -29,7 +29,7 @@ class ConsortiumPPOAgent:
         ent_coef: float = 0.01,
         vf_coef: float = 0.5,
         max_grad_norm: float = 0.5,
-        device: str = 'cpu',  # デフォルトでCPU使用（dFBAボトルネックのため）
+        device: str = 'cpu',  # 強制的にCPU使用（dFBAがボトルネックのためGPU効果なし）
         verbose: int = 1
     ):
         """
@@ -51,7 +51,9 @@ class ConsortiumPPOAgent:
         # 環境をベクトル化
         self.env = DummyVecEnv([lambda: env])
         
-        # PPOモデルの初期化
+        # PPOモデルの初期化（CPU強制）
+        print(f"  💻 計算デバイス: {device} (dFBAシミュレーションがボトルネックのため)")
+        
         self.model = PPO(
             policy='MlpPolicy',
             env=self.env,
@@ -66,7 +68,7 @@ class ConsortiumPPOAgent:
             vf_coef=vf_coef,
             max_grad_norm=max_grad_norm,
             verbose=verbose,
-            device=device,
+            device='cpu',  # 強制的にCPU（deviceパラメータを無視）
             policy_kwargs=dict(
                 net_arch=dict(pi=[256, 256], vf=[256, 256])  # SB3 v1.8.0以降の形式
             )

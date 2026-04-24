@@ -169,9 +169,9 @@ class ConsortiumEnv(gym.Env):
         # 最大ステップ数による打ち切り
         truncated = self.current_step >= self.max_steps
         
-        # バイオマスが全滅した場合も終了（閾値を下げる）
+        # バイオマスが全滅した場合も終了（閾値をさらに緩和）
         total_biomass = sum(s.biomass for s in state.species.values())
-        if total_biomass < 0.001:  # 全バイオマスが0.001 g/L未満（より寛容に）
+        if total_biomass < 0.0001:  # 全バイオマスが0.0001 g/L未満（Phase 1: より寛容に）
             terminated = True
             reward = -50.0  # ペナルティ
             print(f"  ⚠️  ステップ{self.current_step}: バイオマス全滅 ({total_biomass:.6f} g/L)")
