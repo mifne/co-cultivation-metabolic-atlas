@@ -301,7 +301,7 @@ class dFBASimulator:
         species_state = self.state.species[species_name]
         
         # 増殖速度を妥当な範囲にクリップ（-1.0 - 5.0 1/h）
-        growth_rate = np.clip(growth_rate, -1.0, 5.0)
+        growth_rate = np.clip(growth_rate, -1.0, 1.2)
         
         # dX/dt = μ * X
         dX = growth_rate * species_state.biomass * self.dt
