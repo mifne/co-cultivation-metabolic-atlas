@@ -91,11 +91,46 @@ def load_sbml_models(sbml_dir: Path) -> dict:
     if not sbml_files:
         raise FileNotFoundError(f"SBMLファイルが見つかりません: {sbml_dir}")
     
+    print(f"\n📁 SBMLファイル検出: {len(sbml_files)}件")
+    
     for sbml_file in sbml_files:
         species_name = sbml_file.stem
-        print(f"📂 読み込み中: {sbml_file.name}")
-        model = cobra.io.read_sbml_model(str(sbml_file))
-        models[species_name] = model
+        
+        # 空ファイルをスキップ
+        file_size = sbml_file.stat().st_size
+        if file_size == 0:
+            print(f"⚠️  スキップ（空ファイル）: {sbml_file.name}")
+            continue
+        
+        if file_size < 1024:  # 1KB未満
+            print(f"⚠️  スキップ（ファイルサイズが小さすぎる: {file_size} bytes）: {sbml_file.name}")
+            continue
+        
+        print(f"📂 読み込み中: {sbml_file.name} ({file_size:,} bytes)")
+        
+        try:
+            model = cobra.io.read_sbml_model(str(sbml_file))
+            
+            # 基本的な検証
+            if len(model.genes) == 0:
+                print(f"  ⚠️  警告: 遺伝子が0個です")
+            if len(model.reactions) == 0:
+                print(f"  ⚠️  警告: 反応が0個です")
+                continue
+            
+            models[species_name] = model
+            print(f"  ✅ 成功: {len(model.genes)} genes, {len(model.reactions)} reactions")
+            
+        except Exception as e:
+            print(f"  ❌ エラー: {sbml_file.name}")
+            print(f"     {type(e).__name__}: {str(e)}")
+            print(f"  → このファイルをスキップします")
+            continue
+    
+    if not models:
+        raise ValueError(f"有効なSBMLモデルが1つも読み込めませんでした: {sbml_dir}")
+    
+    print(f"\n✅ 読み込み成功: {len(models)}種のモデル")
     
     return models
 
