@@ -181,10 +181,27 @@ class dFBASimulator:
         """
         model = self.models[species_name]
         
+        # 必須基質（炭素源・酸素）の枯渇チェック
+        essential_substrates = {
+            'glc__D_e': metabolite_concentrations.get('glc__D_e', 0.0),
+            'o2_e': metabolite_concentrations.get('o2_e', 0.0)
+        }
+        
         # 交換反応を探索（複数のID形式に対応）
         for met_id, concentration in metabolite_concentrations.items():
-            # 濃度が極めて低い場合はスキップ
-            if concentration < 0.001:
+            # 濃度が極めて低い場合、取り込みを完全に停止
+            if concentration < 0.01:
+                # 必須基質が枯渇した場合は取り込みを完全に閉じる
+                if met_id in essential_substrates:
+                    possible_ids = [met_id]
+                    for possible_id in possible_ids:
+                        if possible_id in self.exchange_reactions[species_name]:
+                            rxn_id = self.exchange_reactions[species_name][possible_id]
+                            try:
+                                rxn = model.reactions.get_by_id(rxn_id)
+                                rxn.lower_bound = 0.0  # 取り込み停止
+                            except KeyError:
+                                continue
                 continue
             
             # 代替IDも試行（例: glc_e と glc__D_e）
@@ -205,7 +222,12 @@ class dFBASimulator:
                         original_lower = rxn.lower_bound
                         
                         # Monod式による取り込み速度の制限
-                        Km = 0.5  # 半飽和定数 [mM]
+                        # 必須基質（glc, o2）は厳しい制約、その他は緩い制約
+                        if possible_id in ['glc__D_e', 'o2_e']:
+                            Km = 0.1  # 半飽和定数を低く設定（厳しい制約）
+                        else:
+                            Km = 0.5  # 通常の半飽和定数
+                        
                         uptake_limit = max_uptake_rate * concentration / (Km + concentration)
                         
                         # 取り込み反応の下限を設定（負の値 = 取り込み）
@@ -300,8 +322,8 @@ class dFBASimulator:
         """
         species_state = self.state.species[species_name]
         
-        # 増殖速度を妥当な範囲にクリップ（-1.0 - 5.0 1/h）
-        growth_rate = np.clip(growth_rate, -1.0, 1.2)
+        # 増殖速度を現実的な範囲にクリップ（-0.5 - 1.2 1/h）
+        growth_rate = np.clip(growth_rate, -0.5, 1.2)
         
         # dX/dt = μ * X
         dX = growth_rate * species_state.biomass * self.dt
@@ -332,13 +354,22 @@ class dFBASimulator:
         for met_id, rxn_id in self.exchange_reactions[species_name].items():
             flux = solution.fluxes[rxn_id]  # mmol/gDW/h
             
+            # フラックスの妥当性チェック（異常値を除外）
+            if abs(flux) > 1000:  # 1000 mmol/gDW/h を超える異常値
+                continue
+            
             # 環境中の代謝物濃度を更新
-            # flux > 0: 分泌, flux < 0: 取り込み
+            # flux > 0: 分泌（環境に追加）, flux < 0: 取り込み（環境から減少）
+            # 単位変換: [mmol/gDW/h] * [gDW/L] * [h] / [L] = [mmol/L] = [mM]
             delta_concentration = flux * biomass * self.dt / self.volume
             
             if met_id in self.state.metabolites:
-                self.state.metabolites[met_id] += delta_concentration
-                self.state.metabolites[met_id] = max(0, self.state.metabolites[met_id])
+                new_concentration = self.state.metabolites[met_id] + delta_concentration
+                # 濃度を物理的に妥当な範囲に制限（0-1000 mM）
+                self.state.metabolites[met_id] = np.clip(new_concentration, 0.0, 1000.0)
+            elif delta_concentration > 0:
+                # 新規代謝物の分泌
+                self.state.metabolites[met_id] = min(delta_concentration, 1000.0)
             
             # 取り込み・分泌速度を記録
             if flux < 0:

@@ -80,16 +80,16 @@ class ConsortiumEnv(gym.Env):
             dtype=np.float32
         )
         
-        # ゴム分解速度（Phase 1: 速度を1/10に削減してエピソード長を延長）
+        # ゴム分解速度（Phase 1: 速度をさらに1/10に削減してエピソード長を延長）
         self.rubber_degradation_rates = {}
         for species_name in self.species_names:
             # デフォルト値を設定（種名に応じて調整可能）
             if 'Sphingobium' in species_name or 'Gordonia' in species_name:
-                self.rubber_degradation_rates[species_name] = 0.005  # LCP分解菌（0.05 -> 0.005）
+                self.rubber_degradation_rates[species_name] = 0.0005  # LCP分解菌（0.005 -> 0.0005）
             elif 'Pseudomonas' in species_name or 'Cupriavidus' in species_name:
-                self.rubber_degradation_rates[species_name] = 0.003  # PHA蓄積菌（0.03 -> 0.003）
+                self.rubber_degradation_rates[species_name] = 0.0003  # PHA蓄積菌（0.003 -> 0.0003）
             else:
-                self.rubber_degradation_rates[species_name] = 0.002  # 安定化菌（0.02 -> 0.002）
+                self.rubber_degradation_rates[species_name] = 0.0002  # 安定化菌（0.002 -> 0.0002）
         
         print(f"  🔬 環境設定:")
         print(f"    種数: {self.n_species}")
@@ -116,7 +116,8 @@ class ConsortiumEnv(gym.Env):
         # 初期ゴム濃度を保存（最初のreset時のみ）
         if not hasattr(self, '_initial_rubber_saved'):
             self._initial_rubber_saved = True
-            self.initial_rubber = self.simulator.state.rubber_concentration
+            # 初期ゴム濃度を10倍に設定（エピソード長を延長）
+            self.initial_rubber = self.simulator.state.rubber_concentration * 10.0
         
         # 前ステップのゴム濃度をリセット
         self.last_rubber_concentration = self.initial_rubber
@@ -290,7 +291,7 @@ class ConsortiumEnv(gym.Env):
         
         # バイオマスが全滅した場合も終了（Phase 1: 閾値をさらに緩和）
         total_biomass = sum(s.biomass for s in state.species.values())
-        if total_biomass < 0.00001:  # 全バイオマスが0.00001 g/L未満（0.0001 -> 0.00001）
+        if total_biomass < 0.001:  # 全バイオマスが0.001 g/L未満（0.00001 -> 0.001）
             terminated = True
             reward = -50.0  # ペナルティ
             print(f"  ⚠️  ステップ{self.current_step}: バイオマス全滅 ({total_biomass:.6f} g/L)")
@@ -317,7 +318,7 @@ class ConsortiumEnv(gym.Env):
     
     def _calculate_reward(self, state: ConsortiumState, action: np.ndarray) -> float:
         """
-        報酬関数（増分ベース）
+        報酬関数（増分ベース + 多様性強化）
         
         Args:
             state: コンソーシアム状態
@@ -339,9 +340,16 @@ class ConsortiumEnv(gym.Env):
         # 前ステップの値を更新
         self.last_rubber_concentration = current_rubber
         
-        # 2. バイオマス多様性報酬（Shannon多様性指数）
+        # 2. バイオマス多様性報酬（Shannon多様性指数 + 独占ペナルティ）
         biomasses = np.array([s.biomass for s in state.species.values()])
         total_biomass = biomasses.sum()
+        
+        # 独占ペナルティ: 特定の種が上限（100 g/L）に達している場合
+        monopoly_penalty = 0.0
+        for biomass in biomasses:
+            if biomass > 50.0:  # 50 g/L を超えたら独占とみなす
+                monopoly_penalty -= (biomass - 50.0) * 0.5
+        
         if total_biomass > 0.01:
             proportions = biomasses / total_biomass
             proportions = proportions[proportions > 1e-6]  # 極小値を除去
@@ -349,11 +357,13 @@ class ConsortiumEnv(gym.Env):
                 diversity = -np.sum(proportions * np.log(proportions + 1e-10))
                 # 3種の場合、最大多様性はlog(3) ≈ 1.099
                 max_diversity = np.log(len(self.species_names))
-                diversity_reward = (diversity / max_diversity) * 20  # 0-20点
+                diversity_reward = (diversity / max_diversity) * 30  # 0-30点（強化）
             else:
                 diversity_reward = 0
         else:
             diversity_reward = -10  # バイオマス不足ペナルティ
+        
+        diversity_reward += monopoly_penalty
         
         # 3. 増殖速度報酬（全種が増殖していることを奨励）
         growth_rates = [s.growth_rate for s in state.species.values()]
