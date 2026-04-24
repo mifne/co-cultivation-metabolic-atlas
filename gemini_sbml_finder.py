@@ -73,16 +73,16 @@ class GeminiSBMLFinder:
     
     def step1_select_organisms(self) -> Dict[str, str]:
         """
-        ステップ1: サブエージェントによる微生物選定
+        ステップ1: サブエージェントによる微生物選定（複数候補）
         
         Returns:
             {species_name: rationale}
         """
         print("\n" + "="*60)
-        print("📋 ステップ1: 微生物種の選定")
+        print("📋 ステップ1: 微生物種の候補選定（各役割5種ずつ）")
         print("="*60)
         
-        prompt = """# Task: 天然ゴム分解コンソーシアムの微生物種選定
+        prompt = """# Task: 天然ゴム分解コンソーシアムの微生物候補選定
 
 ## 目的
 天然ゴム（poly(cis-1,4-isoprene)）を効率的に分解し、付加価値物質（PHA）を生産する3種の微生物コンソーシアムを構築するため、最適な微生物種を選定してください。
@@ -119,54 +119,87 @@ class GeminiSBMLFinder:
 - Pseudomonas fluorescens (γ-プロテオバクテリア、多様な代謝能)
 
 ## 出力形式
-以下のJSON形式で3種を選定し、各種について詳細な根拠を示してください：
+以下のJSON形式で**各役割につき5種の候補**を選定してください（合計15種）：
 
 ```json
 {
-  "selected_organisms": [
+  "lcp_degraders": [
     {
       "species_name": "Gordonia polyisoprenivorans",
       "strain": "VH2",
       "phylum": "Actinobacteria",
-      "consortium_role": "LCP分解菌",
       "rationale": "Lcp1/Lcp2酵素を保有し、天然ゴムを効率的に低分子イソプレノイドに分解。",
       "key_capabilities": ["天然ゴム分解", "イソプレノイド生成"],
       "expected_auxotrophy": "アルギニン",
-      "gem_availability": "文献 (PMID: 35149306) にSBMLモデルあり",
-      "gem_quality_estimate": "高"
+      "gem_availability_estimate": "文献 (PMID: 35149306)",
+      "gem_quality_estimate": "高",
+      "priority": 1
     },
+    {
+      "species_name": "Rhodococcus erythropolis",
+      "strain": "PR4",
+      "phylum": "Actinobacteria",
+      "rationale": "Lcp相同酵素を保有、ゴム分解能あり",
+      "key_capabilities": ["ゴム分解", "多様な炭化水素分解"],
+      "expected_auxotrophy": "トリプトファン",
+      "gem_availability_estimate": "BiGG Models / ModelSEED",
+      "gem_quality_estimate": "中〜高",
+      "priority": 2
+    }
+  ],
+  "pha_accumulators": [
     {
       "species_name": "Cupriavidus necator",
       "strain": "H16",
       "phylum": "Proteobacteria",
-      "consortium_role": "PHA蓄積菌",
-      "rationale": "イソプレノイド分解産物（アセチルCoA等）からPHAを高効率で合成・蓄積。",
+      "rationale": "PHA生産のモデル株、高効率PHA蓄積",
       "key_capabilities": ["PHA合成", "炭素源多様性"],
       "expected_auxotrophy": "トリプトファン",
-      "gem_availability": "BiGG Models (iJN1463) またはModelSEED",
-      "gem_quality_estimate": "非常に高"
+      "gem_availability_estimate": "BiGG Models (iJN1463)",
+      "gem_quality_estimate": "非常に高",
+      "priority": 1
     },
     {
       "species_name": "Pseudomonas putida",
       "strain": "KT2440",
       "phylum": "Proteobacteria",
-      "consortium_role": "安定化菌",
-      "rationale": "多様な有機酸・芳香族化合物を代謝し、副産物を処理。pH安定化に寄与。",
-      "key_capabilities": ["副産物代謝", "pH調整", "バイオフィルム形成"],
+      "rationale": "PHA生産能あり、多様な代謝能",
+      "key_capabilities": ["PHA合成", "芳香族化合物分解"],
       "expected_auxotrophy": "ロイシン",
-      "gem_availability": "BiGG Models (iJN746) またはModelSEED",
-      "gem_quality_estimate": "非常に高"
+      "gem_availability_estimate": "BiGG Models (iJN1462)",
+      "gem_quality_estimate": "非常に高",
+      "priority": 2
     }
   ],
-  "consortium_design_rationale": "LCP分解菌がゴムを分解→PHA蓄積菌が中間体を資源化→安定化菌が系全体を維持、という明確な役割分担により、効率的かつ安定したコンソーシアムを構築。",
-  "expected_cross_feeding": [
-    "イソプレノイド中間体 (Gordonia → Cupriavidus)",
-    "有機酸 (Cupriavidus → Pseudomonas)",
-    "アミノ酸 (相互補完)"
-  ],
-  "metabolic_complementarity": "各種が異なるアミノ酸栄養要求性を持ち、相互依存関係を構築。"
+  "stabilizers": [
+    {
+      "species_name": "Pseudomonas fluorescens",
+      "strain": "Pf-5",
+      "phylum": "Proteobacteria",
+      "rationale": "多様な有機酸代謝、pH調整、バイオフィルム形成",
+      "key_capabilities": ["副産物代謝", "pH調整", "バイオフィルム"],
+      "expected_auxotrophy": "メチオニン",
+      "gem_availability_estimate": "ModelSEED / 文献",
+      "gem_quality_estimate": "中〜高",
+      "priority": 1
+    },
+    {
+      "species_name": "Bacillus subtilis",
+      "strain": "168",
+      "phylum": "Firmicutes",
+      "rationale": "pH調整、バイオフィルム形成、系の安定化",
+      "key_capabilities": ["pH調整", "バイオフィルム", "胞子形成"],
+      "expected_auxotrophy": "ヒスチジン",
+      "gem_availability_estimate": "BiGG Models / ModelSEED",
+      "gem_quality_estimate": "高",
+      "priority": 2
+    }
+  ]
 }
 ```
+
+**重要**: 各役割につき最低5種、できれば7-10種の候補を提案してください。
+GEM入手可能性が高い種を優先し、priorityフィールドで優先順位を明記してください。
 
 ## 重要な判断基準
 1. **役割の明確性**: 3つの役割（LCP分解、PHA蓄積、安定化）が明確に分担されていること
@@ -189,20 +222,35 @@ class GeminiSBMLFinder:
                 json_str = response[json_start:json_end].strip()
                 selection_data = json.loads(json_str)
                 
-                print("\n✅ 選定された微生物:")
-                organisms = {}
-                for org in selection_data.get('selected_organisms', []):
-                    species = org['species_name']
-                    print(f"  - {species}")
-                    print(f"    根拠: {org['rationale']}")
-                    organisms[species] = org
+                print("\n✅ 候補微生物:")
+                
+                # 全候補を統合
+                all_candidates = {}
+                
+                for role, role_key in [
+                    ('LCP分解菌', 'lcp_degraders'),
+                    ('PHA蓄積菌', 'pha_accumulators'),
+                    ('安定化菌', 'stabilizers')
+                ]:
+                    candidates = selection_data.get(role_key, [])
+                    print(f"\n  【{role}】 {len(candidates)}種")
+                    for org in candidates:
+                        species = org['species_name']
+                        print(f"    - {species} (優先度: {org.get('priority', 'N/A')})")
+                        print(f"      GEM: {org.get('gem_availability_estimate', '不明')}")
+                        
+                        # 役割情報を追加
+                        org['consortium_role'] = role
+                        all_candidates[species] = org
                 
                 # 選定結果を保存
-                selection_file = self.log_dir / 'organism_selection.json'
+                selection_file = self.log_dir / 'organism_candidates.json'
                 with open(selection_file, 'w', encoding='utf-8') as f:
                     json.dump(selection_data, f, ensure_ascii=False, indent=2)
                 
-                return organisms
+                print(f"\n📊 合計候補数: {len(all_candidates)}種")
+                
+                return all_candidates
             else:
                 print("⚠️  JSON形式のレスポンスが見つかりませんでした")
                 return {}
@@ -317,112 +365,102 @@ class GeminiSBMLFinder:
         
         return all_models
     
-    def step2_5_filter_organisms(self, organisms: Dict[str, str], models_info: Dict[str, List[Dict]]) -> Dict[str, str]:
+    def step2_5_filter_and_select_best(
+        self, 
+        organisms: Dict[str, str], 
+        models_info: Dict[str, List[Dict]]
+    ) -> Dict[str, str]:
         """
-        ステップ2.5: 選定された微生物とモデル情報をフィルタリング
+        ステップ2.5: モデル情報に基づいて最適な3種を選定
         
         Args:
-            organisms: 選定された微生物の辞書
+            organisms: 候補微生物の辞書
             models_info: モデル情報の辞書
         
         Returns:
-            フィルタリング後の微生物辞書
+            最終選定された3種の辞書
         """
         print("\n" + "="*60)
-        print("🔍 ステップ2.5: 微生物とモデルのフィルタリング")
+        print("🔍 ステップ2.5: モデル評価と最適3種の選定")
         print("="*60)
         
-        # 各微生物のモデル入手可能性をチェック
-        filtered = {}
+        # 役割ごとに候補を分類
+        role_candidates = {
+            'LCP分解菌': [],
+            'PHA蓄積菌': [],
+            '安定化菌': []
+        }
         
         for species_name, org_info in organisms.items():
             models = models_info.get(species_name, [])
+            role = org_info.get('consortium_role', '')
             
             if not models:
-                print(f"\n⚠️  {species_name}: モデルが見つかりませんでした")
-                print(f"  役割: {org_info.get('consortium_role', '不明')}")
-                print(f"  → 除外候補")
+                print(f"⚠️  {species_name}: モデルなし → スキップ")
                 continue
             
-            # 最高品質のモデルを確認
+            # 最高品質のモデルを取得
             best_model = max(models, key=lambda m: m.get('quality_score', 0))
             quality = best_model.get('quality_score', 0)
             
-            print(f"\n✅ {species_name}")
-            print(f"  役割: {org_info.get('consortium_role', '不明')}")
-            print(f"  最良モデル: {best_model['model_id']}")
-            print(f"  品質スコア: {quality}/10")
-            print(f"  ダウンロード可能: {best_model.get('direct_download', False)}")
-            
-            if quality >= 6:
-                filtered[species_name] = org_info
-                print(f"  → 採用")
-            else:
-                print(f"  → 品質不足により除外")
+            if quality >= 6 and role in role_candidates:
+                score = quality + org_info.get('priority', 5) * 0.5
+                role_candidates[role].append({
+                    'species_name': species_name,
+                    'org_info': org_info,
+                    'best_model': best_model,
+                    'quality': quality,
+                    'score': score
+                })
+                print(f"✅ {species_name} ({role}): 品質={quality}/10, スコア={score:.1f}")
         
-        # 役割の重複チェック
-        roles = [org.get('consortium_role', '') for org in filtered.values()]
-        role_counts = {role: roles.count(role) for role in set(roles)}
+        # 各役割から最高スコアの1種を選定
+        final_selection = {}
         
-        print(f"\n📊 役割分担:")
-        for role, count in role_counts.items():
-            print(f"  {role}: {count}種")
+        print("\n📊 最終選定:")
+        for role, candidates in role_candidates.items():
+            if not candidates:
+                print(f"  ❌ {role}: 候補なし")
+                continue
+            
+            # スコアでソート
+            candidates.sort(key=lambda x: x['score'], reverse=True)
+            best = candidates[0]
+            
+            species_name = best['species_name']
+            final_selection[species_name] = best['org_info']
+            
+            print(f"  ✅ {role}: {species_name}")
+            print(f"     モデル: {best['best_model']['model_id']}")
+            print(f"     品質: {best['quality']}/10")
+            print(f"     スコア: {best['score']:.1f}")
+            
+            # 次点候補も表示
+            if len(candidates) > 1:
+                print(f"     次点: {candidates[1]['species_name']} (スコア: {candidates[1]['score']:.1f})")
         
-        # 3つの役割が揃っているか確認
-        required_roles = ['LCP分解菌', 'PHA蓄積菌', '安定化菌']
-        missing_roles = [r for r in required_roles if r not in roles]
-        
-        if missing_roles:
-            print(f"\n⚠️  不足している役割: {', '.join(missing_roles)}")
-            print(f"  → Geminiに代替微生物の提案を依頼します")
-            
-            # Geminiに代替案を求める
-            alt_prompt = f"""# Task: コンソーシアム微生物の代替案提案
-
-以下の役割が不足しています：
-{', '.join(missing_roles)}
-
-現在選定されている微生物：
-{json.dumps([{'species': k, 'role': v.get('consortium_role')} for k, v in filtered.items()], ensure_ascii=False, indent=2)}
-
-## 要求
-不足している役割を担う代替微生物を提案してください。
-- **GEMが確実に入手可能**であること（BiGG Models、ModelSEED、文献）
-- 既存の微生物と代謝的相補性があること
-
-JSON形式で回答：
-```json
-{{
-  "alternative_organisms": [
-    {{
-      "species_name": "種名",
-      "strain": "株名",
-      "consortium_role": "役割",
-      "rationale": "理由",
-      "gem_source": "BiGG Models / ModelSEED / 文献"
-    }}
-  ]
-}}
-```"""
-            
-            alt_response = self._call_gemini(alt_prompt, "alternative_organisms")
-            print(f"\n📝 代替案レスポンス受信")
-            
-            # 代替案のJSONを抽出（簡略化のため、ここでは警告のみ）
-            try:
-                json_start = alt_response.find('```json')
-                if json_start != -1:
-                    json_start = alt_response.find('\n', json_start) + 1
-                    json_end = alt_response.find('```', json_start)
-                    json_str = alt_response[json_start:json_end].strip()
-                    alt_data = json.loads(json_str)
-                    print(f"  提案された代替微生物: {len(alt_data.get('alternative_organisms', []))}種")
-            except Exception as e:
-                print(f"  ⚠️  代替案の解析に失敗: {e}")
+        # 3種揃っているか確認
+        if len(final_selection) < 3:
+            print(f"\n⚠️  最終選定数が不足: {len(final_selection)}/3")
+            missing_roles = [r for r in role_candidates.keys() if not any(
+                org.get('consortium_role') == r for org in final_selection.values()
+            )]
+            print(f"  不足している役割: {', '.join(missing_roles)}")
         else:
-            print(f"\n✅ 3つの役割が揃っています")
+            print(f"\n✅ 3種の選定完了")
         
-        return filtered
+        # 選定結果を保存
+        selection_file = self.log_dir / 'final_selection.json'
+        with open(selection_file, 'w', encoding='utf-8') as f:
+            json.dump({
+                'final_organisms': final_selection,
+                'all_candidates': {
+                    role: [c['species_name'] for c in candidates]
+                    for role, candidates in role_candidates.items()
+                }
+            }, f, ensure_ascii=False, indent=2)
+        
+        return final_selection
     
     def step3_download_sbml_files(self, models_info: Dict[str, List[Dict]]) -> Dict[str, Optional[Path]]:
         """
@@ -685,16 +723,16 @@ JSON形式で回答してください：
         # ステップ2: SBMLモデル検索
         models_info = self.step2_search_sbml_models(organisms)
         
-        # ステップ2.5: フィルタリング
-        filtered_organisms = self.step2_5_filter_organisms(organisms, models_info)
+        # ステップ2.5: 最適な3種を選定
+        final_organisms = self.step2_5_filter_and_select_best(organisms, models_info)
         
-        if len(filtered_organisms) < 3:
-            print(f"\n⚠️  フィルタリング後の微生物数が不足: {len(filtered_organisms)}/3")
+        if len(final_organisms) < 3:
+            print(f"\n⚠️  最終選定数が不足: {len(final_organisms)}/3")
             print(f"  → パイプラインを中断します")
             return
         
-        # フィルタリング後のモデル情報のみを使用
-        filtered_models_info = {k: v for k, v in models_info.items() if k in filtered_organisms}
+        # 最終選定されたモデル情報のみを使用
+        filtered_models_info = {k: v for k, v in models_info.items() if k in final_organisms}
         
         # ステップ3: ダウンロード
         downloaded_files = self.step3_download_sbml_files(filtered_models_info)
