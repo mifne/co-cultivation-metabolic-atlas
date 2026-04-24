@@ -54,9 +54,11 @@ class ConsortiumEnv(gym.Env):
         # 状態空間: n_species * 2 + 4 + 1 次元
         # (バイオマス×n + 増殖速度×n + 代謝物×4 + ゴム×1)
         obs_dim = self.n_species * 2 + 5  # biomass + growth_rate + 4 metabolites + rubber
+        
+        # 観測空間の上限を設定（NaN/Inf防止）
         self.observation_space = spaces.Box(
             low=0.0,
-            high=np.inf,
+            high=100.0,  # 全ての値を0-100の範囲に制限
             shape=(obs_dim,),
             dtype=np.float32
         )
@@ -104,6 +106,13 @@ class ConsortiumEnv(gym.Env):
         self.current_step = 0
         
         obs = self.simulator.get_state_vector()
+        
+        # 観測値の妥当性をチェック
+        if np.any(np.isnan(obs)) or np.any(np.isinf(obs)):
+            print(f"⚠️  リセット時に無効な観測値を検出: {obs}")
+            # 安全な初期値で置き換え
+            obs = np.nan_to_num(obs, nan=0.1, posinf=100.0, neginf=0.0)
+        
         info = {'time': self.simulator.state.time}
         
         return obs, info
@@ -144,6 +153,15 @@ class ConsortiumEnv(gym.Env):
         
         # 観測
         obs = self.simulator.get_state_vector()
+        
+        # 観測値の妥当性をチェック
+        if np.any(np.isnan(obs)) or np.any(np.isinf(obs)):
+            print(f"⚠️  ステップ{self.current_step}で無効な観測値を検出")
+            # 安全な値で置き換え
+            obs = np.nan_to_num(obs, nan=0.1, posinf=100.0, neginf=0.0)
+            # エピソードを強制終了
+            terminated = True
+            reward = -100.0  # ペナルティ
         
         info = {
             'time': state.time,

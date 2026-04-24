@@ -131,12 +131,25 @@ class dFBASimulator:
         
         try:
             solution = model.optimize()
+            
             if solution.status == 'optimal':
+                # 解の妥当性をチェック
+                if solution.objective_value < 0:
+                    print(f"⚠️  {species_name}: 負の目的関数値 ({solution.objective_value:.4f})")
+                    return None
+                
+                # 異常に大きい値をチェック
+                if solution.objective_value > 1000:
+                    print(f"⚠️  {species_name}: 異常に大きい目的関数値 ({solution.objective_value:.4f})")
+                    return None
+                
                 return solution
             else:
+                print(f"⚠️  {species_name}: FBA最適化失敗 (status: {solution.status})")
                 return None
+                
         except Exception as e:
-            print(f"FBA failed for {species_name}: {e}")
+            print(f"❌ {species_name}: FBA解法エラー: {e}")
             return None
     
     def update_biomass(self, species_name: str, growth_rate: float):
@@ -148,7 +161,18 @@ class dFBASimulator:
             growth_rate: 増殖速度 [1/h]
         """
         species_state = self.state.species[species_name]
-        species_state.biomass *= np.exp(growth_rate * self.dt)
+        
+        # 増殖速度を妥当な範囲にクリップ（-1.0 - 5.0 1/h）
+        growth_rate = np.clip(growth_rate, -1.0, 5.0)
+        
+        # dX/dt = μ * X
+        dX = growth_rate * species_state.biomass * self.dt
+        new_biomass = species_state.biomass + dX
+        
+        # バイオマスを妥当な範囲にクリップ（0.001 - 100 g/L）
+        new_biomass = np.clip(new_biomass, 0.001, 100.0)
+        
+        species_state.biomass = new_biomass
         species_state.growth_rate = growth_rate
     
     def update_metabolites(
@@ -224,12 +248,24 @@ class dFBASimulator:
         Returns:
             更新後のコンソーシアム状態
         """
-        # アミノ酸補給
-        for aa_id, conc in amino_acid_supplementation.items():
-            if aa_id in self.state.metabolites:
-                self.state.metabolites[aa_id] += conc
+        # アミノ酸補給（0-10 mMの範囲にクリップ）
+        amino_acid_map = {
+            'arginine': 'arg_e',
+            'tryptophan': 'trp_e',
+            'leucine': 'leu_e'
+        }
+        
+        for aa_name, met_id in amino_acid_map.items():
+            supplement = amino_acid_supplementation.get(aa_name, 0.0)
+            supplement = np.clip(supplement, 0.0, 10.0)
+            if met_id in self.state.metabolites:
+                self.state.metabolites[met_id] += supplement
+                # 代謝物濃度も上限を設定（0-100 mM）
+                self.state.metabolites[met_id] = np.clip(
+                    self.state.metabolites[met_id], 0.0, 100.0
+                )
             else:
-                self.state.metabolites[aa_id] = conc
+                self.state.metabolites[met_id] = supplement
         
         # 各種のFBAを解く
         for species_name in self.models.keys():
@@ -246,6 +282,9 @@ class dFBASimulator:
                 
                 # 代謝物濃度更新
                 self.update_metabolites(species_name, solution)
+            else:
+                # FBA失敗時は増殖速度を0に設定
+                self.state.species[species_name].growth_rate = 0.0
         
         # ゴム分解
         self.degrade_rubber(rubber_degradation_rates)
@@ -260,24 +299,35 @@ class dFBASimulator:
         状態ベクトルを取得（RL環境用）
         
         Returns:
-            状態ベクトル
+            状態ベクトル（正規化・クリップ済み）
         """
         state_vec = []
         
-        # バイオマス濃度
+        # バイオマス濃度（0-100 g/Lの範囲にクリップ）
         for species_name in sorted(self.models.keys()):
-            state_vec.append(self.state.species[species_name].biomass)
+            biomass = self.state.species[species_name].biomass
+            biomass = np.clip(biomass, 0.0, 100.0)
+            state_vec.append(biomass)
         
-        # 増殖速度
+        # 増殖速度（-1.0 - 10.0 1/hの範囲にクリップ）
         for species_name in sorted(self.models.keys()):
-            state_vec.append(self.state.species[species_name].growth_rate)
+            growth_rate = self.state.species[species_name].growth_rate
+            growth_rate = np.clip(growth_rate, -1.0, 10.0)
+            state_vec.append(growth_rate)
         
-        # 主要代謝物濃度
-        key_metabolites = ['isoprene', 'arginine', 'tryptophan', 'leucine']
+        # 主要代謝物濃度（0-100 mMの範囲にクリップ）
+        key_metabolites = ['isoprene', 'arg_e', 'trp_e', 'leu_e']
         for met_id in key_metabolites:
-            state_vec.append(self.state.metabolites.get(met_id, 0.0))
+            conc = self.state.metabolites.get(met_id, 0.0)
+            conc = np.clip(conc, 0.0, 100.0)
+            state_vec.append(conc)
         
-        # ゴム濃度
-        state_vec.append(self.state.rubber_concentration)
+        # ゴム濃度（0-100 g/Lの範囲にクリップ）
+        rubber = np.clip(self.state.rubber_concentration, 0.0, 100.0)
+        state_vec.append(rubber)
         
-        return np.array(state_vec, dtype=np.float32)
+        # NaNやInfをチェックして置き換え
+        state_array = np.array(state_vec, dtype=np.float64)
+        state_array = np.nan_to_num(state_array, nan=0.0, posinf=100.0, neginf=0.0)
+        
+        return state_array.astype(np.float32)
