@@ -222,16 +222,17 @@ class dFBASimulator:
                         # 元の下限を保存
                         original_lower = rxn.lower_bound
                         
-                        # 【修正】濃度が極めて低い場合（< 0.001 mM）は取り込みを大幅に制限
-                        if concentration < 0.001:
+                        # 【修正】濃度が極めて低い場合（< 0.01 mM）は取り込みを大幅に制限
+                        if concentration < 0.01:
                             # 完全停止ではなく、非常に小さい値に制限
                             new_lower_bound = -0.01  # 0.01 mmol/gDW/h（ほぼ停止）
                         else:
                             # Monod式による取り込み速度の制限
-                            if possible_id in ['glc__D_e', 'o2_e']:
-                                Km = 0.01  # 必須基質
+                            # 【修正】必須栄養素（リン酸含む）の Km を厳格化
+                            if possible_id in ['glc__D_e', 'o2_e', 'pi_e', 'nh4_e']:
+                                Km = 0.05  # 0.01 -> 0.05（必須栄養素）
                             else:
-                                Km = 0.1  # その他
+                                Km = 0.2  # 0.1 -> 0.2（その他）
                             
                             uptake_limit = max_uptake_rate * concentration / (Km + concentration)
                             
@@ -327,17 +328,17 @@ class dFBASimulator:
         """
         species_state = self.state.species[species_name]
         
-        # 【修正】増殖速度を現実的な範囲にクリップ（-0.5 - 0.8 1/h）
-        # 1.2 は高すぎる → バイオマスが爆発的に増える原因
-        growth_rate = np.clip(growth_rate, -0.5, 0.8)
+        # 【修正】増殖速度を現実的な範囲にクリップ（-0.5 - 0.5 1/h）
+        # 0.8 でも高すぎる → 0.5 に引き下げ
+        growth_rate = np.clip(growth_rate, -0.5, 0.5)
         
         # dX/dt = μ * X
         dX = growth_rate * species_state.biomass * self.dt
         new_biomass = species_state.biomass + dX
         
-        # 【修正】バイオマスを妥当な範囲にクリップ（0.001 - 50 g/L）
-        # 100 g/L は高すぎる → 50 g/L に引き下げ
-        new_biomass = np.clip(new_biomass, 0.001, 50.0)
+        # 【修正】バイオマスを妥当な範囲にクリップ（0.001 - 20 g/L）
+        # 50 g/L でも高すぎる → 20 g/L に引き下げ
+        new_biomass = np.clip(new_biomass, 0.001, 20.0)
         
         species_state.biomass = new_biomass
         species_state.growth_rate = growth_rate
@@ -494,16 +495,16 @@ class dFBASimulator:
         """
         state_vec = []
         
-        # 【修正】バイオマス濃度（0-50 g/Lの範囲にクリップ）
+        # 【修正】バイオマス濃度（0-20 g/Lの範囲にクリップ）
         for species_name in sorted(self.models.keys()):
             biomass = self.state.species[species_name].biomass
-            biomass = np.clip(biomass, 0.0, 50.0)
+            biomass = np.clip(biomass, 0.0, 20.0)
             state_vec.append(biomass)
         
-        # 【修正】増殖速度（-1.0 - 1.0 1/hの範囲にクリップ）
+        # 【修正】増殖速度（-0.5 - 0.5 1/hの範囲にクリップ）
         for species_name in sorted(self.models.keys()):
             growth_rate = self.state.species[species_name].growth_rate
-            growth_rate = np.clip(growth_rate, -1.0, 1.0)
+            growth_rate = np.clip(growth_rate, -0.5, 0.5)
             state_vec.append(growth_rate)
         
         # 主要代謝物濃度（0-100 mMの範囲にクリップ）

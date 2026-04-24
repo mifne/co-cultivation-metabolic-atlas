@@ -260,8 +260,8 @@ def setup_simulator(models: dict, use_mock: bool = True) -> dFBASimulator:
         # 窒素源
         'nh4_e': 20.0,         # アンモニウム [mM]
         
-        # リン酸
-        'pi_e': 10.0,          # リン酸 [mM]
+        # リン酸（増量: 10 -> 50 mM）
+        'pi_e': 50.0,          # リン酸 [mM]
         
         # 硫黄源
         'so4_e': 5.0,          # 硫酸 [mM]

@@ -64,10 +64,10 @@ class ConsortiumEnv(gym.Env):
         # (バイオマス×n + 増殖速度×n + 代謝物×4 + ゴム×1)
         obs_dim = self.n_species * 2 + 5  # biomass + growth_rate + 4 metabolites + rubber
         
-        # 【修正】観測空間の上限を調整（バイオマス上限を50に）
+        # 【修正】観測空間の上限を調整（バイオマス上限を20に）
         self.observation_space = spaces.Box(
             low=0.0,
-            high=50.0,  # 100 -> 50（バイオマス上限に合わせる）
+            high=20.0,  # 50 -> 20（バイオマス上限に合わせる）
             shape=(obs_dim,),
             dtype=np.float32
         )
@@ -80,16 +80,16 @@ class ConsortiumEnv(gym.Env):
             dtype=np.float32
         )
         
-        # ゴム分解速度（Phase 1: 速度をさらに1/10に削減してエピソード長を延長）
+        # 【修正】ゴム分解速度を100倍に引き上げ（学習シグナルを得るため）
         self.rubber_degradation_rates = {}
         for species_name in self.species_names:
             # デフォルト値を設定（種名に応じて調整可能）
             if 'Sphingobium' in species_name or 'Gordonia' in species_name:
-                self.rubber_degradation_rates[species_name] = 0.00005  # LCP分解菌（0.0005 -> 0.00005）
+                self.rubber_degradation_rates[species_name] = 0.005  # LCP分解菌（0.00005 -> 0.005）
             elif 'Pseudomonas' in species_name or 'Cupriavidus' in species_name:
-                self.rubber_degradation_rates[species_name] = 0.00003  # PHA蓄積菌（0.0003 -> 0.00003）
+                self.rubber_degradation_rates[species_name] = 0.003  # PHA蓄積菌（0.00003 -> 0.003）
             else:
-                self.rubber_degradation_rates[species_name] = 0.00002  # 安定化菌（0.0002 -> 0.00002）
+                self.rubber_degradation_rates[species_name] = 0.002  # 安定化菌（0.00002 -> 0.002）
         
         print(f"  🔬 環境設定:")
         print(f"    種数: {self.n_species}")
@@ -289,9 +289,9 @@ class ConsortiumEnv(gym.Env):
         # 最大ステップ数による打ち切り
         truncated = self.current_step >= self.max_steps
         
-        # バイオマスが全滅した場合も終了（Phase 1: 閾値をさらに緩和）
+        # バイオマスが全滅した場合も終了
         total_biomass = sum(s.biomass for s in state.species.values())
-        if total_biomass < 0.01:  # 全バイオマスが0.01 g/L未満（0.001 -> 0.01）
+        if total_biomass < 0.05:  # 全バイオマスが0.05 g/L未満（0.01 -> 0.05）
             terminated = True
             reward = -50.0  # ペナルティ
             print(f"  ⚠️  ステップ{self.current_step}: バイオマス全滅 ({total_biomass:.6f} g/L)")
@@ -355,11 +355,11 @@ class ConsortiumEnv(gym.Env):
         if total_biomass < 0.01 or avg_growth < 0.001:
             diversity_reward = -10.0  # バイオマス不足または増殖停止
         else:
-            # 【修正】独占ペナルティ: 特定の種が上限（50 g/L）に達している場合
+            # 【修正】独占ペナルティ: 特定の種が上限（20 g/L）に達している場合
             monopoly_penalty = 0.0
             for biomass in biomasses:
-                if biomass > 20.0:  # 20 g/L を超えたら独占とみなす（上限50に合わせて調整）
-                    monopoly_penalty -= (biomass - 20.0) * 2.0  # ペナルティを強化
+                if biomass > 10.0:  # 10 g/L を超えたら独占とみなす（上限20に合わせて調整）
+                    monopoly_penalty -= (biomass - 10.0) * 3.0  # ペナルティをさらに強化
             
             proportions = biomasses / total_biomass
             proportions = proportions[proportions > 1e-6]  # 極小値を除去
