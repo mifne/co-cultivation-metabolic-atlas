@@ -199,50 +199,91 @@ Please provide:
 
 Please process large SBML files efficiently and provide detailed analysis."""
     
-    def send_task(self, prompt: str, task_name: str = "gem_preparation") -> dict:
+    def send_task(self, prompt: str, task_name: str = "gem_preparation", max_retries: int = 3) -> dict:
         """
-        Gemini APIにタスクを送信し、レスポンスを取得
+        Gemini APIにタスクを送信し、レスポンスを取得（リトライ機能付き）
         
         Args:
             prompt: 送信するプロンプト
             task_name: タスク名（ファイル保存用）
+            max_retries: 最大リトライ回数
         
         Returns:
             レスポンスデータを含む辞書
         """
         print(f"🚀 Geminiにタスクを送信中: {task_name}")
         print(f"📝 プロンプト長: {len(prompt)} 文字")
+        print(f"🤖 使用モデル: {self.model_name}")
         
-        try:
-            # Gemini APIにリクエスト送信
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=prompt
-            )
+        # フォールバックモデルのリスト
+        fallback_models = [
+            self.model_name,
+            'gemini-2.5-flash',
+            'gemini-2.5-pro',
+            'gemini-1.5-flash-002',
+        ]
+        
+        last_error = None
+        
+        for model_name in fallback_models:
+            for attempt in range(max_retries):
+                try:
+                    if attempt > 0:
+                        wait_time = 2 ** attempt  # 指数バックオフ
+                        print(f"⏳ {wait_time}秒待機後に再試行... (試行 {attempt + 1}/{max_retries})")
+                        time.sleep(wait_time)
+                    
+                    # Gemini APIにリクエスト送信
+                    response = self.client.models.generate_content(
+                        model=model_name,
+                        contents=prompt
+                    )
+                    
+                    # レスポンスの処理
+                    result = {
+                        'task_name': task_name,
+                        'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+                        'model_used': model_name,
+                        'prompt': prompt,
+                        'response_text': response.text,
+                        'status': 'success'
+                    }
+                    
+                    print(f"✅ レスポンス受信完了")
+                    print(f"📊 レスポンス長: {len(response.text)} 文字")
+                    
+                    return result
+                    
+                except Exception as e:
+                    error_msg = str(e)
+                    last_error = error_msg
+                    
+                    # 503エラー（高負荷）の場合はリトライ
+                    if '503' in error_msg or 'UNAVAILABLE' in error_msg:
+                        print(f"⚠️  モデル {model_name} が高負荷中 (試行 {attempt + 1}/{max_retries})")
+                        if attempt < max_retries - 1:
+                            continue
+                        else:
+                            print(f"❌ {model_name} でリトライ上限に達しました。次のモデルを試行...")
+                            break
+                    # その他のエラーは即座に次のモデルへ
+                    else:
+                        print(f"❌ エラー ({model_name}): {error_msg}")
+                        break
             
-            # レスポンスの処理
-            result = {
-                'task_name': task_name,
-                'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-                'prompt': prompt,
-                'response_text': response.text,
-                'status': 'success'
-            }
-            
-            print(f"✅ レスポンス受信完了")
-            print(f"📊 レスポンス長: {len(response.text)} 文字")
-            
-            return result
-            
-        except Exception as e:
-            print(f"❌ エラー発生: {str(e)}")
-            return {
-                'task_name': task_name,
-                'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-                'prompt': prompt,
-                'error': str(e),
-                'status': 'failed'
-            }
+            # このモデルで成功しなかった場合、次のフォールバックモデルへ
+            if model_name != fallback_models[-1]:
+                print(f"🔄 フォールバックモデルに切り替え中...")
+        
+        # すべてのモデルで失敗した場合
+        print(f"❌ すべてのモデルで失敗しました")
+        return {
+            'task_name': task_name,
+            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+            'prompt': prompt,
+            'error': last_error,
+            'status': 'failed'
+        }
     
     def save_response(self, result: dict):
         """
