@@ -354,6 +354,14 @@ def train_agent(args):
         amino_acid_cost=args.amino_acid_cost
     )
     
+    # 環境のリセット動作を確認
+    print("\n  🔍 環境リセット動作の確認:")
+    obs, info = env.reset()
+    print(f"    初期観測ベクトル形状: {obs.shape}")
+    print(f"    初期ゴム濃度: {env.simulator.state.rubber_concentration:.4f} g/L")
+    total_biomass = sum(s.biomass for s in env.simulator.state.species.values())
+    print(f"    初期総バイオマス: {total_biomass:.4f} g/L")
+    
     # PPOエージェントの作成（CPU強制）
     agent = ConsortiumPPOAgent(
         env=env,

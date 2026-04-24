@@ -101,17 +101,108 @@ class ConsortiumEnv(gym.Env):
         """
         super().reset(seed=seed)
         
-        # シミュレーターを初期状態にリセット
-        # （実装簡略化のため、新しいシミュレーターインスタンスを想定）
+        # シミュレーターの状態を完全にリセット
         self.current_step = 0
+        
+        # 初期ゴム濃度を保存（最初のreset時のみ）
+        if not hasattr(self, '_initial_rubber_saved'):
+            self._initial_rubber_saved = True
+            self.initial_rubber = self.simulator.state.rubber_concentration
+        
+        # 状態を初期値にリセット
+        self.simulator.state.time = 0.0
+        self.simulator.state.rubber_concentration = self.initial_rubber
+        
+        # バイオマスを初期値にリセット
+        for species_name in self.simulator.state.species.keys():
+            species_state = self.simulator.state.species[species_name]
+            
+            # 初期バイオマスを復元
+            if 'Sphingobium' in species_name:
+                species_state.biomass = 0.05
+            elif 'Pseudomonas' in species_name:
+                species_state.biomass = 0.1
+            elif 'Lactobacillus' in species_name:
+                species_state.biomass = 0.15
+            else:
+                species_state.biomass = 0.1
+            
+            species_state.growth_rate = 0.0
+            species_state.metabolite_uptake = {}
+            species_state.metabolite_secretion = {}
+        
+        # 代謝物濃度を初期値にリセット
+        initial_metabolites = {
+            'glc__D_e': 20.0,
+            'arg__L_e': 2.0,
+            'trp__L_e': 1.0,
+            'leu__L_e': 1.5,
+            'ala__L_e': 1.0,
+            'asn__L_e': 1.0,
+            'asp__L_e': 1.0,
+            'cys__L_e': 0.5,
+            'gln__L_e': 1.0,
+            'glu__L_e': 1.0,
+            'gly_e': 1.0,
+            'his__L_e': 0.5,
+            'ile__L_e': 1.0,
+            'lys__L_e': 1.0,
+            'met__L_e': 0.5,
+            'phe__L_e': 0.8,
+            'pro__L_e': 1.0,
+            'ser__L_e': 1.0,
+            'thr__L_e': 1.0,
+            'tyr__L_e': 0.5,
+            'val__L_e': 1.0,
+            'nh4_e': 20.0,
+            'pi_e': 10.0,
+            'so4_e': 5.0,
+            'o2_e': 21.0,
+            'fe2_e': 0.01,
+            'fe3_e': 0.01,
+            'ca2_e': 0.5,
+            'cl_e': 1.0,
+            'co2_e': 1.0,
+            'cu2_e': 0.001,
+            'h_e': 0.0001,
+            'h2o_e': 55000.0,
+            'k_e': 5.0,
+            'mg2_e': 2.0,
+            'mn2_e': 0.01,
+            'mobd_e': 0.001,
+            'na1_e': 10.0,
+            'zn2_e': 0.01,
+            'thm_e': 0.01,
+            'ribflv_e': 0.01,
+            'isoprene': 0.0,
+            'ac_e': 0.1,
+            'lac__D_e': 0.0,
+            'lac__L_e': 0.0,
+        }
+        self.simulator.state.metabolites = initial_metabolites.copy()
+        
+        # 培地条件を再初期化
+        self.simulator._initialize_medium()
         
         obs = self.simulator.get_state_vector()
         
         # 観測値の妥当性をチェック
         if np.any(np.isnan(obs)) or np.any(np.isinf(obs)):
             print(f"⚠️  リセット時に無効な観測値を検出: {obs}")
-            # 安全な初期値で置き換え
             obs = np.nan_to_num(obs, nan=0.1, posinf=100.0, neginf=0.0)
+        
+        # デバッグ出力（最初の3回のみ）
+        if not hasattr(self, '_reset_count'):
+            self._reset_count = 0
+        
+        if self._reset_count < 3:
+            print(f"\n  🔄 環境リセット #{self._reset_count + 1}:")
+            print(f"    ゴム濃度: {self.simulator.state.rubber_concentration:.4f} g/L")
+            total_biomass = sum(s.biomass for s in self.simulator.state.species.values())
+            print(f"    総バイオマス: {total_biomass:.4f} g/L")
+            print(f"    観測ベクトル: {obs[:5]}... (最初の5要素)")
+        
+        self._reset_count += 1
         
         info = {'time': self.simulator.state.time}
         
@@ -135,8 +226,8 @@ class ConsortiumEnv(gym.Env):
             'leucine': action[2] * max_supplement
         }
         
-        # デバッグ出力（最初の数ステップのみ）
-        if self.current_step < 3:
+        # デバッグ出力（最初の5ステップのみ）
+        if self.current_step < 5:
             print(f"\n  🎮 ステップ{self.current_step}: アクション={action}")
             print(f"    アミノ酸補給: Arg={amino_acid_supplementation['arginine']:.2f}, "
                   f"Trp={amino_acid_supplementation['tryptophan']:.2f}, "
@@ -151,13 +242,17 @@ class ConsortiumEnv(gym.Env):
         # 報酬計算
         reward = self._calculate_reward(state, action)
         
-        # デバッグ出力（最初の数ステップのみ）
-        if self.current_step < 3:
+        # デバッグ出力（最初の5ステップのみ）
+        if self.current_step < 5:
             rubber_degraded_ratio = 1 - (state.rubber_concentration / self.initial_rubber)
             total_biomass = sum(s.biomass for s in state.species.values())
             print(f"    ゴム残量: {state.rubber_concentration:.4f} g/L ({rubber_degraded_ratio*100:.2f}% 分解)")
             print(f"    総バイオマス: {total_biomass:.4f} g/L")
             print(f"    報酬: {reward:.2f}")
+            
+            # 各種のバイオマスも表示
+            for species_name, species_state in state.species.items():
+                print(f"      {species_name[:20]}: {species_state.biomass:.4f} g/L, growth={species_state.growth_rate:.4f} 1/h")
         
         # 終了条件
         self.current_step += 1
