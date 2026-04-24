@@ -13,6 +13,62 @@ from google import genai
 class GeminiTaskRunner:
     """Gemini APIを使用してGEM準備タスクを実行するクラス"""
     
+    def _select_best_model(self) -> str:
+        """
+        利用可能なモデルをAPIから取得し、コストパフォーマンスが最も高いものを選択
+        
+        Returns:
+            選択されたモデル名
+        """
+        try:
+            print("🔍 利用可能なモデルを検索中...")
+            
+            # 利用可能なモデルのリストを取得
+            models = self.client.models.list()
+            
+            # generateContentをサポートするモデルのみをフィルタ
+            available_models = []
+            for model in models:
+                if 'generateContent' in model.supported_generation_methods:
+                    available_models.append({
+                        'name': model.name,
+                        'display_name': model.display_name,
+                        'description': getattr(model, 'description', '')
+                    })
+            
+            if not available_models:
+                raise ValueError("generateContentをサポートするモデルが見つかりません")
+            
+            # 優先順位: Flash系 > Pro系（コストパフォーマンス重視）
+            # 最新バージョンを優先
+            priority_keywords = [
+                'flash-2.0',
+                'flash-1.5', 
+                'flash',
+                'pro-2.0',
+                'pro-1.5',
+                'pro'
+            ]
+            
+            selected_model = None
+            for keyword in priority_keywords:
+                for model in available_models:
+                    model_name_lower = model['name'].lower()
+                    if keyword in model_name_lower:
+                        selected_model = model['name']
+                        print(f"✅ 選択されたモデル: {model['display_name']} ({model['name']})")
+                        return selected_model
+            
+            # フォールバック: 最初に見つかったモデルを使用
+            selected_model = available_models[0]['name']
+            print(f"⚠️  デフォルトモデルを使用: {available_models[0]['display_name']} ({selected_model})")
+            return selected_model
+            
+        except Exception as e:
+            print(f"⚠️  モデル選択エラー: {str(e)}")
+            print("📌 フォールバック: gemini-pro を使用")
+            return 'gemini-pro'
+    
     def __init__(self, api_key: str = None):
         """
         Args:
@@ -23,7 +79,9 @@ class GeminiTaskRunner:
             raise ValueError("GEMINI_API_KEY environment variable not set")
         
         self.client = genai.Client(api_key=self.api_key)
-        self.model_name = 'gemini-1.5-flash'
+        
+        # 利用可能なモデルを取得して最適なものを選択
+        self.model_name = self._select_best_model()
         
         # 出力ディレクトリの作成
         self.output_dir = Path('gemini_outputs')
