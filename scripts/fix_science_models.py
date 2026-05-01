@@ -55,11 +55,11 @@ def fix_ns21_model(path):
         rxn = model.reactions.get_by_id("PHB_syn")
         logger.info(f"Verified PHB_syn: {[m.id for m in rxn.products]}")
 
-    # 3. PHA排出反応を閉じる
+    # 3. PHA排出反応を開放 (シミュレーターでの蓄積追跡のため)
     for ex_id in ["EX_pha_c", "EX_pha_e"]:
         if ex_id in model.reactions:
-            model.reactions.get_by_id(ex_id).bounds = (0, 0)
-            logger.info(f"Closed exchange reaction: {ex_id}")
+            model.reactions.get_by_id(ex_id).bounds = (0, 1000)
+            logger.info(f"Opened exchange reaction: {ex_id}")
             
     cobra.io.write_sbml_model(model, path)
 

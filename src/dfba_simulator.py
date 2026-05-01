@@ -108,8 +108,22 @@ class dFBASimulator:
             for rxn in model.exchanges:
                 if len(rxn.metabolites) == 1:
                     met = list(rxn.metabolites.keys())[0]
+                    # M_ プレフィックスを除去した ID をキーにする
                     clean_id = met.id[2:] if met.id.startswith('M_') else met.id
                     exchange_map[species_name][clean_id] = rxn.id
+            
+            # --- 特殊反応の明示的マッピング (名前が不規則な場合) ---
+            # PHA 蓄積 (Sink 反応)
+            for pha_id in ['EX_pha_c', 'EX_phb_c', 'R_EX_pha_c']:
+                if pha_id in model.reactions:
+                    exchange_map[species_name]['pha_c'] = pha_id
+            
+            # ゴム取り込み (Exchange 反応)
+            for rubber_id in ['EX_rubber_e', 'R_EX_rubber_e', 'rubber_high_e']:
+                if rubber_id in model.reactions:
+                    exchange_map[species_name]['rubber_e'] = rubber_id
+
+            # 栄養供給用エイリアス
             if 'Actinoplanes' in species_name and 'EX_mlttr_e' in exchange_map[species_name].values():
                 exchange_map[species_name]['sn_or16'] = 'EX_mlttr_e'
             elif 'Rhizobacter' in species_name and 'EX_ptrc_e' in exchange_map[species_name].values():

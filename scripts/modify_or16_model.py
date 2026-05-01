@@ -131,7 +131,7 @@ def modify_or16_model(input_path, output_path):
         rxn_ex.name = 'Rubber exchange'
         model.add_reactions([rxn_ex])
     rxn_ex.add_metabolites({rubber_e: -1}, combine=False)
-    rxn_ex.lower_bound = 0
+    rxn_ex.lower_bound = -1000
     rxn_ex.upper_bound = 1000
 
     # 保存
