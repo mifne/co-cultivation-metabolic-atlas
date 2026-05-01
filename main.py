@@ -9,10 +9,46 @@ from pathlib import Path
 import json
 import matplotlib.pyplot as plt
 import cobra
+from typing import Dict, Tuple, Optional, List, Callable
 
 from src.dfba_simulator import dFBASimulator
 from src.rl_environment import ConsortiumEnv
 from src.ppo_agent import ConsortiumPPOAgent
+from src.callbacks import ConsortiumCallback
+
+
+def make_env(sbml_dir: str, env_params: dict, data_log_path: Optional[str] = None, rank: int = 0):
+    """
+    環境作成用のファクトリ関数を返す。
+    """
+    def _init():
+        if sbml_dir:
+            all_models = load_sbml_models(Path(sbml_dir))
+            models = select_consortium_models(all_models)
+        else:
+            models = create_mock_models()
+            
+        initial_biomass, initial_metabolites = get_initial_params(models)
+        
+        # 並列環境ごとに異なるログファイル名を生成
+        env_log_path = None
+        if data_log_path:
+            log_path_obj = Path(data_log_path)
+            env_log_path = str(log_path_obj.parent / f"{log_path_obj.stem}_env{rank}{log_path_obj.suffix}")
+
+        sim = dFBASimulator(
+            models=models,
+            initial_biomass=initial_biomass,
+            initial_metabolites=initial_metabolites,
+            initial_rubber=100.0,
+            volume=1.0,
+            dt=0.2,
+            data_log_path=env_log_path
+        )
+        
+        env = ConsortiumEnv(simulator=sim, **env_params)
+        return env
+    return _init
 
 
 def create_mock_models() -> dict:
@@ -36,29 +72,35 @@ def create_mock_models() -> dict:
         arg = cobra.Metabolite('arg_e', compartment='e', name='Arginine')
         trp = cobra.Metabolite('trp_e', compartment='e', name='Tryptophan')
         leu = cobra.Metabolite('leu_e', compartment='e', name='Leucine')
+        nh4 = cobra.Metabolite('nh4_e', compartment='e', name='Ammonium')
         biomass = cobra.Metabolite('biomass', compartment='c', name='Biomass')
         
         # 交換反応
         ex_glc = cobra.Reaction('EX_glc_e')
         ex_glc.add_metabolites({glc: -1})
-        ex_glc.bounds = (-10, 0)
+        ex_glc.bounds = (-100, 1000)
+        
+        ex_nh4 = cobra.Reaction('EX_nh4_e')
+        ex_nh4.add_metabolites({nh4: -1})
+        ex_nh4.bounds = (-100, 1000)
         
         ex_arg = cobra.Reaction('EX_arg_e')
         ex_arg.add_metabolites({arg: -1})
-        ex_arg.bounds = (-10, 0)
+        ex_arg.bounds = (-10, 1000)
         
         ex_trp = cobra.Reaction('EX_trp_e')
         ex_trp.add_metabolites({trp: -1})
-        ex_trp.bounds = (-10, 0)
+        ex_trp.bounds = (-10, 1000)
         
         ex_leu = cobra.Reaction('EX_leu_e')
         ex_leu.add_metabolites({leu: -1})
-        ex_leu.bounds = (-10, 0)
+        ex_leu.bounds = (-10, 1000)
         
         # バイオマス反応
         biomass_rxn = cobra.Reaction('BIOMASS')
         biomass_rxn.add_metabolites({
             glc: -1,
+            nh4: -0.5,
             arg: -0.1,
             trp: -0.05,
             leu: -0.08,
@@ -67,7 +109,7 @@ def create_mock_models() -> dict:
         biomass_rxn.bounds = (0, 1000)
         
         # モデルに追加
-        model.add_reactions([ex_glc, ex_arg, ex_trp, ex_leu, biomass_rxn])
+        model.add_reactions([ex_glc, ex_nh4, ex_arg, ex_trp, ex_leu, biomass_rxn])
         model.objective = 'BIOMASS'
         
         models[species] = model
@@ -78,12 +120,6 @@ def create_mock_models() -> dict:
 def load_sbml_models(sbml_dir: Path) -> dict:
     """
     SBMLファイルからモデルを読み込み
-    
-    Args:
-        sbml_dir: SBMLファイルのディレクトリ
-    
-    Returns:
-        {species_name: cobra.Model}
     """
     models = {}
     sbml_files = list(sbml_dir.glob('*.xml')) + list(sbml_dir.glob('*.sbml'))
@@ -91,218 +127,92 @@ def load_sbml_models(sbml_dir: Path) -> dict:
     if not sbml_files:
         raise FileNotFoundError(f"SBMLファイルが見つかりません: {sbml_dir}")
     
-    print(f"\n📁 SBMLファイル検出: {len(sbml_files)}件")
+    # print(f"\n📁 SBMLファイル検出: {len(sbml_files)}件") # Quiet
     
     for sbml_file in sbml_files:
         species_name = sbml_file.stem
-        
-        # 空ファイルをスキップ
-        file_size = sbml_file.stat().st_size
-        if file_size == 0:
-            print(f"⚠️  スキップ（空ファイル）: {sbml_file.name}")
-            continue
-        
-        if file_size < 1024:  # 1KB未満
-            print(f"⚠️  スキップ（ファイルサイズが小さすぎる: {file_size} bytes）: {sbml_file.name}")
-            continue
-        
-        print(f"📂 読み込み中: {sbml_file.name} ({file_size:,} bytes)")
-        
         try:
             model = cobra.io.read_sbml_model(str(sbml_file))
-            
-            # 基本的な検証
-            if len(model.genes) == 0:
-                print(f"  ⚠️  警告: 遺伝子が0個です")
-            if len(model.reactions) == 0:
-                print(f"  ⚠️  警告: 反応が0個です")
-                continue
-            
             models[species_name] = model
-            print(f"  ✅ 成功: {len(model.genes)} genes, {len(model.reactions)} reactions")
-            
-        except Exception as e:
-            print(f"  ❌ エラー: {sbml_file.name}")
-            print(f"     {type(e).__name__}: {str(e)}")
-            print(f"  → このファイルをスキップします")
+        except Exception:
             continue
     
     if not models:
         raise ValueError(f"有効なSBMLモデルが1つも読み込めませんでした: {sbml_dir}")
-    
-    print(f"\n✅ 読み込み成功: {len(models)}種のモデル")
     
     return models
 
 
 def select_consortium_models(models: dict) -> dict:
     """
-    読み込まれたモデルから最適な3種を選定
-    
-    Args:
-        models: 全モデルの辞書
-    
-    Returns:
-        選定された3種のモデル辞書
+    真の精鋭3種（OR16, NS21, LP）を選定
     """
-    # 優先順位リスト（ドキュメントに基づく）
     priority_species = [
-        # LCP分解菌
-        ('Sphingobium_japonicum_iJN1463', 'LCP分解菌'),
-        ('Sphingobium_japonicum', 'LCP分解菌'),
-        
-        # PHA蓄積菌
-        ('Pseudomonas_putida_KT2440', 'PHA蓄積菌'),
-        ('Pseudomonas_putida_KT2440_iJN1462', 'PHA蓄積菌'),
-        ('Escherichia_coli_K12_iML1515', 'PHA蓄積菌（代替）'),
-        
-        # 安定化菌
-        ('Lactobacillus_plantarum_iNF517', '安定化菌'),
-        ('Lactobacillus_plantarum', '安定化菌'),
-        ('Bacillus_subtilis_168_iYO844', '安定化菌（代替）'),
+        ('Actinoplanes_sp_OR16_lcp', 'Engine 1: Lcp分解'),
+        ('Rhizobacter_gummiphilus_NS21', 'Engine 2: Rox分解 + PHA蓄積'),
+        ('Lactobacillus_plantarum', 'Stabilizer: 代謝安定化'),
     ]
-    
     selected = {}
-    selected_roles = set()
-    
-    print("\n🔍 コンソーシアム用の3種を選定中...")
-    
-    for species_key, role in priority_species:
-        # 役割が既に選定済みならスキップ
-        role_type = role.split('（')[0]  # "PHA蓄積菌（代替）" -> "PHA蓄積菌"
-        if role_type in selected_roles:
-            continue
-        
-        # モデルが存在するか確認
-        if species_key in models:
-            selected[species_key] = models[species_key]
-            selected_roles.add(role_type)
-            print(f"  ✅ {role}: {species_key}")
-            
-            if len(selected) == 3:
-                break
-    
+    for key, role in priority_species:
+        if key in models:
+            selected[key] = models[key]
+            print(f"  ✅ {role}: {key}")
     if len(selected) < 3:
-        print(f"\n⚠️  優先リストから3種選定できませんでした（{len(selected)}/3）")
-        print(f"  → 利用可能なモデルから補完します")
-        
-        # 不足分を補完
-        for species_name, model in models.items():
-            if species_name not in selected:
-                selected[species_name] = model
-                print(f"  ✅ 補完: {species_name}")
-                
-                if len(selected) == 3:
-                    break
-    
-    if len(selected) < 3:
-        raise ValueError(f"3種のモデルを選定できませんでした（{len(selected)}/3種のみ利用可能）")
-    
-    print(f"\n✅ 最終選定: {len(selected)}種")
+        for name, model in models.items():
+            if name not in selected and len(selected) < 3:
+                selected[name] = model
+                print(f"  ✅ 補完: {name}")
     return selected
 
 
-def setup_simulator(models: dict, use_mock: bool = True) -> dFBASimulator:
+
+def get_initial_params(models: dict) -> Tuple[dict, dict]:
     """
-    dFBAシミュレーターをセットアップ
-    
-    Args:
-        models: COBRAモデル辞書（3種）
-        use_mock: モックデータを使用するか
-    
-    Returns:
-        dFBASimulator
+    初期パラメータを取得（M9 + LP生存用サプリメント）
+    科学的調整: OR16優位の初期比率と低糖条件により共生を誘導
     """
-    # 初期バイオマス（種ごとに異なる初期値）
-    initial_biomass = {}
-    for species_name in models.keys():
-        if 'Sphingobium' in species_name:
-            # LCP分解菌: 少量から開始（ゴム分解が進むと増殖）
-            initial_biomass[species_name] = 0.05
-        elif 'Pseudomonas' in species_name:
-            # PHA蓄積菌: 中程度の初期値
-            initial_biomass[species_name] = 0.1
-        elif 'Lactobacillus' in species_name:
-            # 安定化菌: 多めに開始（pH調整のため）
-            initial_biomass[species_name] = 0.15
-        else:
-            initial_biomass[species_name] = 0.1
-    
-    # 初期代謝物濃度（BiGG Modelsの標準IDを使用）
-    initial_metabolites = {
-        # 主要炭素源（BiGG Models標準ID）
-        'glc__D_e': 20.0,      # D-グルコース [mM]
-        
-        # アミノ酸（BiGG Models標準ID）
-        'arg__L_e': 2.0,       # L-アルギニン [mM]
-        'trp__L_e': 1.0,       # L-トリプトファン [mM]
-        'leu__L_e': 1.5,       # L-ロイシン [mM]
-        
-        # その他の必須アミノ酸（増殖に必要）
-        'ala__L_e': 1.0,       # L-アラニン [mM]
-        'asn__L_e': 1.0,       # L-アスパラギン [mM]
-        'asp__L_e': 1.0,       # L-アスパラギン酸 [mM]
-        'cys__L_e': 0.5,       # L-システイン [mM]
-        'gln__L_e': 1.0,       # L-グルタミン [mM]
-        'glu__L_e': 1.0,       # L-グルタミン酸 [mM]
-        'gly_e': 1.0,          # グリシン [mM]
-        'his__L_e': 0.5,       # L-ヒスチジン [mM]
-        'ile__L_e': 1.0,       # L-イソロイシン [mM]
-        'lys__L_e': 1.0,       # L-リジン [mM]
-        'met__L_e': 0.5,       # L-メチオニン [mM]
-        'phe__L_e': 0.8,       # L-フェニルアラニン [mM]
-        'pro__L_e': 1.0,       # L-プロリン [mM]
-        'ser__L_e': 1.0,       # L-セリン [mM]
-        'thr__L_e': 1.0,       # L-トレオニン [mM]
-        'tyr__L_e': 0.5,       # L-チロシン [mM]
-        'val__L_e': 1.0,       # L-バリン [mM]
-        
-        # 窒素源
-        'nh4_e': 20.0,         # アンモニウム [mM]
-        
-        # リン酸（増量: 50 -> 200 mM）
-        'pi_e': 200.0,         # リン酸 [mM]
-        
-        # 硫黄源
-        'so4_e': 5.0,          # 硫酸 [mM]
-        
-        # 酸素（好気条件）
-        'o2_e': 21.0,          # 酸素 [mM]
-        
-        # 微量元素
-        'fe2_e': 0.01,         # 鉄(II) [mM]
-        'fe3_e': 0.01,         # 鉄(III) [mM]
-        'ca2_e': 0.5,          # カルシウム [mM]
-        'cl_e': 1.0,           # 塩化物 [mM]
-        'co2_e': 1.0,          # 二酸化炭素 [mM]
-        'cu2_e': 0.001,        # 銅 [mM]
-        'h_e': 0.0001,         # プロトン（pH 7相当）[mM]
-        'h2o_e': 55000.0,      # 水 [mM]
-        'k_e': 5.0,            # カリウム [mM]
-        'mg2_e': 2.0,          # マグネシウム [mM]
-        'mn2_e': 0.01,         # マンガン [mM]
-        'mobd_e': 0.001,       # モリブデン酸 [mM]
-        'na1_e': 10.0,         # ナトリウム [mM]
-        'zn2_e': 0.01,         # 亜鉛 [mM]
-        
-        # ビタミン類
-        'thm_e': 0.01,         # チアミン [mM]
-        'ribflv_e': 0.01,      # リボフラビン [mM]
-        
-        # イソプレノイド（初期は0、ゴム分解で生成）
-        'isoprene': 0.0,
-        
-        # 有機酸（初期は微量）
-        'ac_e': 0.1,           # 酢酸 [mM]
-        'lac__D_e': 0.0,       # D-乳酸 [mM]
-        'lac__L_e': 0.0,       # L-乳酸 [mM]
+    # OR16を主役に、LPとNS21をサポーターとして1:5の比率で開始
+    initial_biomass = {
+        name: 0.5 if 'OR16' in name else 0.1 
+        for name in models.keys()
     }
     
-    # 【修正】天然ゴム初期濃度を引き下げ（分解速度を上げたため）
-    initial_rubber = 100.0  # g/L（1000.0 -> 100.0）
-    
-    # タイムステップを長めに設定（FBAの安定性向上）
-    dt = 0.5  # 0.5時間 = 30分
+    initial_metabolites = {
+        'glc__D_e': 0.5, 'nh4_e': 50.0, 'pi_e': 50.0, 'o2_e': 0.25, 
+        'so4_e': 2.0, 'mg2_e': 2.0, 'ca2_e': 0.1, 'k_e': 10.0, 'cl_e': 10.0,
+        'fe3_e': 0.1, 'fe2_e': 0.1, 'h_e': 0.0001, 'h2o_e': 55000.0, 'co2_e': 1.0,
+        'zn2_e': 0.01, 'mn2_e': 0.1, 'cu2_e': 0.01, 'cobalt2_e': 0.01, 
+        'ni2_e': 0.01, 'mobd_e': 0.01,
+        # --- 必須ビタミン・補酵素 (LP要求分) ---
+        'nac_e': 0.1, 'ribflv_e': 0.1, 'pnto__R_e': 0.1, 'thm_e': 0.1, 
+        'btn_e': 0.1, '4abz_e': 0.1, 'fol_e': 0.1, 'nicnt_e': 0.1,
+        'ade_e': 0.1, 'gua_e': 0.1, 'ura_e': 0.1, 'xan_e': 0.1, 'orot_e': 0.1,
+        'ins_e': 0.1, 'thymd_e': 0.1,
+        # --- 必須アミノ酸 (LP供給用) ---
+        'ala__L_e': 1.0, 'arg__L_e': 1.0, 'asn__L_e': 1.0, 'asp__L_e': 1.0, 
+        'cys__L_e': 1.0, 'gln__L_e': 1.0, 'glu__L_e': 1.0, 'gly_e': 1.0, 
+        'his__L_e': 1.0, 'ile__L_e': 1.0, 'leu__L_e': 1.0, 'lys__L_e': 1.0, 
+        'met__L_e': 1.0, 'phe__L_e': 1.0, 'pro__L_e': 1.0, 'ser__L_e': 1.0, 
+        'thr__L_e': 1.0, 'trp__L_e': 1.0, 'tyr__L_e': 1.0, 'val__L_e': 1.0,
+        # --- バイオサーファクタント代替 (2-methylbutanoic acid) ---
+        '2mba_e': 0.0,
+        # --- ゴム中間体 ---
+        'rubber_fragment_e': 0.0, 'odtd_e': 0.0,
+        # --- 種特異的栄養素の初期値 ---
+        'mlttr_e': 0.0, 'ptrc_e': 0.0, 'mnl_e': 0.0
+    }
+
+    return initial_biomass, initial_metabolites
+
+
+
+def setup_simulator(models: dict, data_log_path: Optional[str] = None) -> dFBASimulator:
+    """
+    dFBAシミュレーターをセットアップ
+    """
+    initial_biomass, initial_metabolites = get_initial_params(models)
+    initial_rubber = 100.0
+    dt = 0.1
     
     simulator = dFBASimulator(
         models=models,
@@ -310,23 +220,38 @@ def setup_simulator(models: dict, use_mock: bool = True) -> dFBASimulator:
         initial_metabolites=initial_metabolites,
         initial_rubber=initial_rubber,
         volume=1.0,
-        dt=dt
+        dt=dt,
+        data_log_path=data_log_path
     )
-    
-    print(f"\n  🧪 初期条件:")
-    print(f"    バイオマス: {initial_biomass}")
-    print(f"    グルコース: {initial_metabolites.get('glc__D_e', 0):.1f} mM")
-    print(f"    アミノ酸: Arg={initial_metabolites.get('arg__L_e', 0):.1f}, "
-          f"Trp={initial_metabolites.get('trp__L_e', 0):.1f}, "
-          f"Leu={initial_metabolites.get('leu__L_e', 0):.1f} mM")
-    print(f"    窒素源: NH4={initial_metabolites.get('nh4_e', 0):.1f} mM")
-    print(f"    リン酸: Pi={initial_metabolites.get('pi_e', 0):.1f} mM")
-    print(f"    酸素: O2={initial_metabolites.get('o2_e', 0):.1f} mM")
-    print(f"    天然ゴム: {initial_rubber:.1f} g/L")
-    print(f"    タイムステップ: {dt} h")
-    print(f"    代謝物総数: {len(initial_metabolites)}種")
-    
     return simulator
+
+
+def convert_to_serializable(obj):
+    """
+    JSONシリアル化不可能なオブジェクトを変換
+    """
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, (np.float32, np.float64)):
+        return float(obj)
+    elif isinstance(obj, (np.int32, np.int64)):
+        return int(obj)
+    elif isinstance(obj, dict):
+        return {k: convert_to_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_to_serializable(item) for item in obj]
+    return obj
+
+
+def linear_schedule(initial_value: float) -> Callable[[float], float]:
+    """
+    線形学習率スケジュール
+    :param initial_value: 初期の学習率
+    :return: 残りのステップ数（1.0から0.0）に応じた学習率を返す関数
+    """
+    def func(progress_remaining: float) -> float:
+        return progress_remaining * initial_value
+    return func
 
 
 def train_agent(args):
@@ -340,49 +265,76 @@ def train_agent(args):
     else:
         models = create_mock_models()
     
-    # シミュレーターのセットアップ
-    simulator = setup_simulator(models, use_mock=(not hasattr(args, 'sbml_dir') or args.sbml_dir is None))
+    # パラメータ設定
+    initial_biomass, initial_metabolites = get_initial_params(models)
+    simulator_params = {
+        'models': models,
+        'initial_biomass': initial_biomass,
+        'initial_metabolites': initial_metabolites,
+        'initial_rubber': 100.0,
+        'volume': 1.0,
+        'dt': 0.1,
+        'data_log_path': getattr(args, 'data_log_path', None)
+    }
     
-    # RL環境の作成
-    env = ConsortiumEnv(
-        simulator=simulator,
-        max_steps=args.max_steps,
-        target_rubber_degradation=args.target_degradation,
-        amino_acid_cost=args.amino_acid_cost
-    )
-    
-    # 環境のリセット動作を確認
-    obs, info = env.reset()
-    
-    # 評価用環境の作成（オプション）
-    eval_env = None
-    if hasattr(args, 'eval_during_training') and args.eval_during_training:
-        eval_simulator = setup_simulator(models, use_mock=(not hasattr(args, 'sbml_dir') or args.sbml_dir is None))
-        eval_env = ConsortiumEnv(
-            simulator=eval_simulator,
-            max_steps=args.max_steps,
-            target_rubber_degradation=args.target_degradation,
-            amino_acid_cost=args.amino_acid_cost
-        )
-    
+    env_params = {
+        'max_time': args.max_steps * 0.2, # dt=0.2に合わせて時間に変換
+    }
+
+    # 学習率スケジュールの設定
+    lr = args.learning_rate
+    if getattr(args, 'linear_lr', False):
+        print(f"📉 線形学習率スケジュールを適用 (Initial LR: {lr})")
+        lr = linear_schedule(lr)
+
+    # 環境の作成
+    if args.n_envs > 1:
+        # SubprocVecEnv用の関数のリストを作成
+        env_input = [make_env(args.sbml_dir, env_params, getattr(args, 'data_log_path', None), rank=i) for i in range(args.n_envs)]
+    else:
+        # 単一環境（DummyVecEnv用）
+        env_input = make_env(args.sbml_dir, env_params, getattr(args, 'data_log_path', None), rank=0)
+
     # PPOエージェントの作成
     agent = ConsortiumPPOAgent(
-        env=env,
-        learning_rate=args.learning_rate,
+        env=env_input,
+        learning_rate=lr,
+        n_steps=args.n_steps,
+        batch_size=args.batch_size,
+        ent_coef=args.ent_coef,
+        gamma=args.gamma,
         device='cpu',
         verbose=1,
-        n_envs=1  # 並列環境は将来的に対応
+        n_envs=args.n_envs,
+        tensorboard_log=args.tensorboard_log
     )
-    
+
+    # チェックポイントから再開
+    if args.resume_from:
+        print(f"🔄 チェックポイントから再開: {args.resume_from}")
+        agent.load(args.resume_from)
+
     # 訓練
+    from stable_baselines3.common.callbacks import CheckpointCallback
+    
+    callbacks = [
+        ConsortiumCallback(),
+        CheckpointCallback(
+            save_freq=max(1000, args.save_freq // args.n_envs),
+            save_path=args.output_dir,
+            name_prefix='ppo_consortium',
+            save_vecnormalize=True
+        )
+    ]
+    
+    print(f"🚀 学習開始: {args.total_timesteps} ステップ")
+    print(f"📡 リアルタイム監視: TensorBoard (Science/ セクション)")
+    print(f"💾 チェックポイント保存: {args.output_dir}")
+
     history = agent.train(
         total_timesteps=args.total_timesteps,
         log_interval=args.log_interval,
-        save_freq=getattr(args, 'save_freq', 10000),
-        save_path=args.output_dir,
-        eval_freq=getattr(args, 'eval_freq', 5000) if getattr(args, 'eval_during_training', False) else None,
-        eval_env=eval_env,
-        n_eval_episodes=args.eval_episodes
+        callback=callbacks
     )
     
     # モデルの保存
@@ -395,29 +347,18 @@ def train_agent(args):
     # 訓練履歴の保存
     history_path = output_dir / 'training_history.json'
     with open(history_path, 'w') as f:
-        json.dump(history, f, indent=2)
+        serializable_history = convert_to_serializable(history)
+        json.dump(serializable_history, f, indent=2)
     print(f"📊 訓練履歴保存: {history_path}")
     
-    # 評価
+    # 評価（単一環境で実行）
+    print("📊 最終評価中...")
+    eval_sim = dFBASimulator(**simulator_params)
+    eval_env = ConsortiumEnv(simulator=eval_sim, **env_params)
     results = agent.evaluate(n_episodes=args.eval_episodes)
     
-    # 結果の保存（numpy型をPython標準型に変換）
-    def convert_to_serializable(obj):
-        """numpy型をJSON serializable型に変換"""
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-        elif isinstance(obj, (np.float32, np.float64)):
-            return float(obj)
-        elif isinstance(obj, (np.int32, np.int64)):
-            return int(obj)
-        elif isinstance(obj, dict):
-            return {k: convert_to_serializable(v) for k, v in obj.items()}
-        elif isinstance(obj, list):
-            return [convert_to_serializable(item) for item in obj]
-        return obj
-    
+    # 結果の保存
     serializable_results = convert_to_serializable(results)
-    
     results_path = output_dir / 'evaluation_results.json'
     with open(results_path, 'w') as f:
         json.dump(serializable_results, f, indent=2)
@@ -432,20 +373,27 @@ def evaluate_agent(args):
     # モデルの読み込み
     if args.sbml_dir:
         all_models = load_sbml_models(Path(args.sbml_dir))
-        # 3種に絞り込み
         models = select_consortium_models(all_models)
     else:
         models = create_mock_models()
     
+    # 初期パラメータ
+    initial_biomass, initial_metabolites = get_initial_params(models)
+    
     # シミュレーターのセットアップ
-    simulator = setup_simulator(models, use_mock=(args.sbml_dir is None))
+    sim = dFBASimulator(
+        models=models,
+        initial_biomass=initial_biomass,
+        initial_metabolites=initial_metabolites,
+        initial_rubber=100.0,
+        volume=1.0,
+        dt=0.5
+    )
     
     # RL環境の作成
     env = ConsortiumEnv(
-        simulator=simulator,
-        max_steps=args.max_steps,
-        target_rubber_degradation=args.target_degradation,
-        amino_acid_cost=args.amino_acid_cost
+        simulator=sim,
+        max_time=args.max_steps * 0.1
     )
     
     # エージェントの読み込み
@@ -468,28 +416,48 @@ def main():
     # 訓練モード
     train_parser = subparsers.add_parser('train', help='エージェントを訓練')
     train_parser.add_argument('--sbml-dir', type=str, help='SBMLファイルのディレクトリ')
+    train_parser.add_argument('--resume-from', type=str, default=None,
+                             help='再開するモデルのパス')
     train_parser.add_argument('--total-timesteps', type=int, default=100000,
                              help='総訓練ステップ数')
-    train_parser.add_argument('--max-steps', type=int, default=200,
-                             help='1エピソードの最大ステップ数')
+    train_parser.add_argument('--max-steps', type=int, default=840,
+                             help='1エピソードの最大ステップ数 (dt=0.2なら840で168h)')
     train_parser.add_argument('--target-degradation', type=float, default=0.9,
                              help='目標ゴム分解率')
     train_parser.add_argument('--amino-acid-cost', type=float, default=0.1,
                              help='アミノ酸コスト係数')
-    train_parser.add_argument('--learning-rate', type=float, default=3e-4,
+    train_parser.add_argument('--nutrient-cost', type=float, default=0.01,
+                             help='基本栄養素（グルコース等）コスト係数')
+    train_parser.add_argument('--data-log-path', type=str, default=None,
+                             help='FBA結果のログ保存パス (サロゲートモデル用)')
+    train_parser.add_argument('--learning-rate', type=float, default=5e-5,
                              help='学習率')
+    train_parser.add_argument('--n-steps', type=int, default=4096,
+                             help='PPOのn_steps (各環境での収集ステップ数)')
+    train_parser.add_argument('--batch-size', type=int, default=512,
+                             help='PPOのbatch_size')
+    train_parser.add_argument('--ent-coef', type=float, default=0.01,
+                             help='PPOのentropy係数')
+    train_parser.add_argument('--gamma', type=float, default=0.99,
+                             help='割引率')
     train_parser.add_argument('--output-dir', type=str, default='outputs',
                              help='出力ディレクトリ')
-    train_parser.add_argument('--log-interval', type=int, default=10,
-                             help='ログ出力間隔')
-    train_parser.add_argument('--save-freq', type=int, default=10000,
+    train_parser.add_argument('--log-interval', type=int, default=1,
+                             help='ログ出力間隔 (PPO更新ごと)')
+    train_parser.add_argument('--save-freq', type=int, default=5000,
                              help='チェックポイント保存頻度')
-    train_parser.add_argument('--eval-episodes', type=int, default=10,
+    train_parser.add_argument('--eval-episodes', type=int, default=5,
                              help='評価エピソード数')
     train_parser.add_argument('--eval-during-training', action='store_true',
                              help='訓練中に定期的に評価を実行')
     train_parser.add_argument('--eval-freq', type=int, default=5000,
                              help='訓練中評価の頻度')
+    train_parser.add_argument('--n-envs', type=int, default=8,
+                             help='並列環境数')
+    train_parser.add_argument('--tensorboard-log', type=str, default='outputs/tensorboard',
+                             help='TensorBoardのログ保存先')
+    train_parser.add_argument('--linear-lr', action='store_true',
+                             help='学習率の線形減衰を有効にする')
     
     # 評価モード
     eval_parser = subparsers.add_parser('evaluate', help='訓練済みエージェントを評価')

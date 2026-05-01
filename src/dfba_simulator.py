@@ -8,7 +8,10 @@ from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
 import cobra
 from cobra.flux_analysis import flux_variability_analysis
-
+import json
+from pathlib import Path
+import os
+import csv
 
 @dataclass
 class SpeciesState:
@@ -17,6 +20,7 @@ class SpeciesState:
     growth_rate: float  # 増殖速度 [1/h]
     metabolite_uptake: Dict[str, float]  # 代謝物取り込み速度 [mmol/gDW/h]
     metabolite_secretion: Dict[str, float]  # 代謝物分泌速度 [mmol/gDW/h]
+    pha_accumulated: float = 0.0  # PHA蓄積量 [mmol]
 
 
 @dataclass
@@ -38,22 +42,37 @@ class dFBASimulator:
         initial_metabolites: Dict[str, float],
         initial_rubber: float,
         volume: float = 1.0,
-        dt: float = 0.1
+        dt: float = 0.1,
+        data_log_path: Optional[str] = None,
+        carrying_capacity: float = 20.0,
+        metabolite_inhibition_threshold: float = 20.0,
+        metabolite_inhibition_decay: float = 0.1
     ):
-        """
-        Args:
-            models: 各種のCOBRAモデル {species_name: model}
-            initial_biomass: 初期バイオマス濃度 {species_name: concentration [g/L]}
-            initial_metabolites: 初期代謝物濃度 {metabolite_id: concentration [mM]}
-            initial_rubber: 初期天然ゴム濃度 [g/L]
-            volume: 培養液量 [L]
-            dt: 時間ステップ [h]
-        """
         self.models = models
         self.volume = volume
         self.dt = dt
+        self.data_log_path = data_log_path
+        self.carrying_capacity = carrying_capacity
+        self.metabolite_inhibition_threshold = metabolite_inhibition_threshold
+        self.metabolite_inhibition_decay = metabolite_inhibition_decay
         
-        # 初期状態の設定
+        # --- 科学的再構築: 培地の緩衝能 (50mM リン酸, pH7.0 -> 6.0) ---
+        self.buffering_pool = 16.37 # mmol/L H+ を中和可能
+        
+        if self.data_log_path:
+            os.makedirs(os.path.dirname(self.data_log_path), exist_ok=True)
+            
+        self.log_fieldnames = [
+            'time', 'species', 'growth_rate', 'biomass', 'pha_accumulated', 
+            'rubber_concentration', 'cumulative_co2',
+            'conc_glc__D_e', 'conc_nh4_e', 'conc_o2_e', 'conc_pi_e', 
+            'conc_arg__L_e', 'conc_trp__L_e', 'conc_leu__L_e',
+            'conc_rubber_fragment_e', 'conc_odtd_e', 'conc_h2o_e', 'conc_h_e',
+            'flux_EX_co2_e', 'flux_EX_pha_c', 'flux_EX_phb_c', 
+            'flux_EX_rubber_fragment_e', 'flux_EX_odtd_e'
+        ]
+        self._log_header_initialized = False
+        
         self.state = ConsortiumState(
             time=0.0,
             species={
@@ -68,473 +87,447 @@ class dFBASimulator:
             metabolites=initial_metabolites.copy(),
             rubber_concentration=initial_rubber
         )
+        self.cumulative_co2_emission = 0.0
+        self.current_step = 0
         
-        # 代謝物の交換反応IDマッピング
         self.exchange_reactions = self._identify_exchange_reactions()
         
-        # モデルの初期培地条件を設定
-        self._initialize_medium()
-    
-    def _identify_exchange_reactions(self) -> Dict[str, Dict[str, str]]:
-        """
-        各モデルの交換反応を特定
+        self.original_bounds = {}
+        for species_name, model in self.models.items():
+            self.original_bounds[species_name] = {
+                rxn.id: (rxn.lower_bound, rxn.upper_bound)
+                for rxn in model.exchanges
+            }
         
-        Returns:
-            {species_name: {metabolite_id: exchange_reaction_id}}
-        """
+        self._initialize_medium()
+
+    def _identify_exchange_reactions(self) -> Dict[str, Dict[str, str]]:
         exchange_map = {}
         for species_name, model in self.models.items():
             exchange_map[species_name] = {}
             for rxn in model.exchanges:
-                # 交換反応から代謝物IDを抽出
                 if len(rxn.metabolites) == 1:
                     met = list(rxn.metabolites.keys())[0]
-                    exchange_map[species_name][met.id] = rxn.id
-            
-            print(f"  📊 {species_name}: {len(exchange_map[species_name])}個の交換反応を検出")
-            
+                    clean_id = met.id[2:] if met.id.startswith('M_') else met.id
+                    exchange_map[species_name][clean_id] = rxn.id
+            if 'Actinoplanes' in species_name and 'EX_mlttr_e' in exchange_map[species_name].values():
+                exchange_map[species_name]['sn_or16'] = 'EX_mlttr_e'
+            elif 'Rhizobacter' in species_name and 'EX_ptrc_e' in exchange_map[species_name].values():
+                exchange_map[species_name]['sn_ns21'] = 'EX_ptrc_e'
+            elif 'Lactobacillus' in species_name and 'EX_mnl_e' in exchange_map[species_name].values():
+                exchange_map[species_name]['sn_lp'] = 'EX_mnl_e'
         return exchange_map
     
     def _initialize_medium(self):
-        """
-        各モデルの初期培地条件を設定（完全開放版）
-        """
+        # --- 科学的再構築: リン酸緩衝系の初期化 (50mM, pH 7.0) ---
+        self.buffer_total = 50.0  # mM
+        self.pKa = 7.21           # Phosphate pKa2
+        initial_ph = 7.0
+        ratio = 10**(initial_ph - self.pKa)
+        self.buffer_base = self.buffer_total * ratio / (1 + ratio)
+        self.buffer_acid = self.buffer_total - self.buffer_base
+
         for species_name, model in self.models.items():
-            # 【修正】全ての取り込み反応を完全に開放
-            medium = {}
-            
+            # 一旦すべての交換反応の取り込みを制限 (培地にないものは 0)
             for rxn in model.exchanges:
-                # 取り込み反応（負の下限）のみを開放
                 if rxn.lower_bound < 0:
-                    # 【修正】元の下限を保存しつつ、完全に開放
-                    # original_lower = rxn.lower_bound  # 元の値（コメントで保存）
-                    medium[rxn.id] = 1000.0  # 完全開放（abs(rxn.lower_bound) -> 1000.0）
+                    rxn.lower_bound = min(0.0, rxn.upper_bound)
             
-            # mediumを設定
-            try:
-                model.medium = medium
-            except Exception as e:
-                pass
+            # 培地に存在する代謝物の取り込みを許可
+            for met_id in self.state.metabolites.keys():
+                if met_id in self.exchange_reactions[species_name]:
+                    rxn_id = self.exchange_reactions[species_name][met_id]
+                    target_rxn = model.reactions.get_by_id(rxn_id)
+                    
+                    if rxn_id in self.original_bounds[species_name]:
+                        lb, _ = self.original_bounds[species_name][rxn_id]
+                        target_rxn.lower_bound = min(lb, target_rxn.upper_bound)
+                    else:
+                        target_rxn.lower_bound = min(-1000.0, target_rxn.upper_bound)
             
-            # 初期FBAテスト
+            # 水の交換反応を常に許可
+            if 'h2o_e' in self.exchange_reactions[species_name]:
+                rxn_id = self.exchange_reactions[species_name]['h2o_e']
+                model.reactions.get_by_id(rxn_id).lower_bound = -1000.0
+            
+            # --- 効率化: ソルバー設定をここで一度だけ行う ---
             try:
-                solution = model.optimize()
-                if solution.status != 'optimal':
-                    self._diagnose_infeasibility(species_name, model)
-            except Exception as e:
-                pass
-    
+                model.solver.configuration.timeout = 10 
+                model.solver.configuration.presolve = True
+            except: pass
+
     def _diagnose_infeasibility(self, species_name: str, model: cobra.Model):
-        """
-        FBA失敗の原因を診断（強化版）
-        
-        Args:
-            species_name: 種名
-            model: COBRAモデル
-        """
-        print(f"    🔍 {species_name} の詳細診断中...")
-        
-        # 1. バイオマス反応の確認
-        if model.objective:
-            obj_rxn = list(model.objective.variables.keys())[0]
-            print(f"      目的関数: {obj_rxn.id}")
-            print(f"      境界: [{obj_rxn.lower_bound}, {obj_rxn.upper_bound}]")
-        
-        # 2. 必須交換反応の状態を詳細表示
-        essential_metabolites = ['glc__D_e', 'o2_e', 'nh4_e', 'pi_e', 'h2o_e']
-        print(f"      📊 必須代謝物の交換反応:")
-        for met_id in essential_metabolites:
-            if met_id in self.exchange_reactions[species_name]:
-                rxn_id = self.exchange_reactions[species_name][met_id]
-                rxn = model.reactions.get_by_id(rxn_id)
-                conc = self.state.metabolites.get(met_id, 0.0)
-                status = "🔴 閉鎖" if (rxn.lower_bound == 0 and rxn.upper_bound == 0) else "🟢 開放"
-                print(f"        {status} {met_id}: 境界=[{rxn.lower_bound:.2f}, {rxn.upper_bound:.2f}], 濃度={conc:.4f} mM")
-        
-        # 3. 全ての交換反応の統計
-        closed_count = 0
-        open_count = 0
-        for rxn in model.exchanges:
-            if rxn.lower_bound == 0 and rxn.upper_bound == 0:
-                closed_count += 1
-            else:
-                open_count += 1
-        print(f"      交換反応統計: 開放={open_count}, 閉鎖={closed_count}")
-        
-        # 4. 制約の緩和を試行
-        print(f"      🔧 制約緩和テスト中...")
+        print(f"    🔍 {species_name} infeasibility diagnosis...")
         with model:
-            # 全ての交換反応を完全に開放
             for rxn in model.exchanges:
                 rxn.lower_bound = -1000
                 rxn.upper_bound = 1000
-            
             try:
                 solution = model.optimize()
                 if solution.status == 'optimal':
-                    print(f"      ✅ 制約緩和後は最適化成功（μ={solution.objective_value:.4f}）")
-                    print(f"         → 原因: 取り込み制約が厳しすぎる")
+                    print(f"      ✅ Relaxed optimal: μ={solution.objective_value:.4f} -> Problem: Constraints too tight")
                 else:
-                    print(f"      ❌ 制約緩和後も失敗（status: {solution.status}）")
-                    print(f"         → 原因: モデル構造の問題")
-            except Exception as e:
-                print(f"      ❌ 制約緩和テストエラー: {e}")
+                    print(f"      ❌ Still infeasible (status: {solution.status}) -> Problem: Model structure")
+            except: pass
     
-    def set_uptake_constraints(
-        self,
-        species_name: str,
-        metabolite_concentrations: Dict[str, float],
-        max_uptake_rate: float = 50.0  # 20.0 -> 50.0 に引き上げ
-    ):
-        """
-        代謝物濃度に基づいて取り込み制約を設定（緩和版）
-        
-        Args:
-            species_name: 種名
-            metabolite_concentrations: 代謝物濃度 {metabolite_id: concentration [mM]}
-            max_uptake_rate: 最大取り込み速度 [mmol/gDW/h]
-        """
+    def set_uptake_constraints(self, species_name: str, metabolite_concentrations: Dict[str, float], max_uptake_rate: float = 20.0):
         model = self.models[species_name]
         
-        # 交換反応を探索（複数のID形式に対応）
+        # 1. すべての交換反応の吸収(lower_bound)を一旦 0 にリセット (培地にないものの吸収を禁止)
+        for rxn in model.exchanges:
+            # lower_bound を 0 にしたいが、upper_bound が負の場合は lb <= ub を維持するためそれに合わせる
+            rxn.lower_bound = min(0.0, rxn.upper_bound)
+
+        # 2. H2O と H+ は常に供給可能とする（水系溶媒のため）
+        for h_id in ['h2o_e', 'h_e']:
+            if h_id in self.exchange_reactions[species_name]:
+                rxn_id = self.exchange_reactions[species_name][h_id]
+                model.reactions.get_by_id(rxn_id).lower_bound = -1000.0
+
+        # 3. 培地に存在する代謝物の取り込み制約を設定
         for met_id, concentration in metabolite_concentrations.items():
-            # 【修正】濃度が極めて低い場合でも完全停止しない（微量でも取り込み可能）
-            # 元のコード（削除）:
-            # if concentration < 0.01:
-            #     if met_id in essential_substrates:
-            #         rxn.lower_bound = 0.0
-            #     continue
+            if met_id in ['h2o_e', 'h_e']: continue # 既に処理済み
             
-            # 代替IDも試行（例: glc_e と glc__D_e）
-            possible_ids = [met_id]
-            if '_e' in met_id and '__' not in met_id:
-                # glc_e -> glc__D_e のような変換を試行
-                base = met_id.replace('_e', '')
-                possible_ids.append(f"{base}__D_e")
-                possible_ids.append(f"{base}__L_e")
-            
-            for possible_id in possible_ids:
-                if possible_id in self.exchange_reactions[species_name]:
-                    rxn_id = self.exchange_reactions[species_name][possible_id]
-                    try:
-                        rxn = model.reactions.get_by_id(rxn_id)
-                        
-                        # 元の下限を保存
-                        original_lower = rxn.lower_bound
-                        
-                        # 【修正】濃度が極めて低い場合（< 0.01 mM）は取り込みを大幅に制限
-                        if concentration < 0.01:
-                            # 完全停止ではなく、非常に小さい値に制限
-                            new_lower_bound = -0.01  # 0.01 mmol/gDW/h（ほぼ停止）
-                        else:
-                            # Monod式による取り込み速度の制限
-                            # 【修正】必須栄養素（リン酸含む）の Km を厳格化
-                            if possible_id in ['glc__D_e', 'o2_e', 'pi_e', 'nh4_e']:
-                                Km = 0.05  # 0.01 -> 0.05（必須栄養素）
-                            else:
-                                Km = 0.2  # 0.1 -> 0.2（その他）
-                            
-                            uptake_limit = max_uptake_rate * concentration / (Km + concentration)
-                            
-                            # 取り込み反応の下限を設定（負の値 = 取り込み）
-                            new_lower_bound = -uptake_limit
-                        
-                        # 元の下限より緩い制約のみ適用（制約を強めない）
-                        if new_lower_bound > original_lower:
-                            new_lower_bound = original_lower
-                        
-                        # 境界値の妥当性をチェック
-                        if new_lower_bound > rxn.upper_bound:
-                            new_lower_bound = rxn.upper_bound
-                        
-                        # 安全な範囲に制限
-                        new_lower_bound = max(new_lower_bound, -1000.0)
-                        
-                        rxn.lower_bound = new_lower_bound
-                        
-                        break  # 成功したらループを抜ける
-                    except KeyError:
-                        continue
-                    except ValueError as e:
-                        # 境界値エラーをキャッチ
-                        print(f"  ⚠️  {species_name}/{rxn_id}: 境界値エラー - {e}")
-                        continue
+            if met_id in self.exchange_reactions[species_name]:
+                rxn_id = self.exchange_reactions[species_name][met_id]
+                try:
+                    rxn = model.reactions.get_by_id(rxn_id)
+                    # モデル本来の最大取り込み能力(original_bounds)を考慮
+                    orig_lb, _ = self.original_bounds[species_name].get(rxn_id, (-1000.0, 1000.0))
+                    
+                    # ミカエリス・メンテン型の速度制限
+                    Km = 0.01 if met_id in ['glc__D_e', 'o2_e', 'pi_e', 'nh4_e'] else 0.1
+                    uptake_limit = max_uptake_rate * concentration / (Km + concentration)
+                    
+                    # 培地濃度が極めて低い場合は完全に遮断
+                    if concentration < 1e-9: uptake_limit = 0.0
+                    
+                    # 負の値として設定 (吸収)
+                    combined_lb = max(-uptake_limit, orig_lb)
+                    rxn.lower_bound = min(0.0, combined_lb)
+                except: continue
+
+        # 4. 【科学的整合性】ゴム分解・発現抑制の特殊ロジック
+        if 'OR16' in species_name:
+            # ゴム分解酵素(LCP)の発現制御
+            glc_conc = metabolite_concentrations.get('glc__D_e', 0.0)
+            rubber_conc = self.state.rubber_concentration
+
+            if 'R_LCP' in model.reactions:
+                lcp_rxn = model.reactions.get_by_id('R_LCP')
+
+                # --- トランスクリプトーム加重誘導ロジック ---
+                # 誘導倍率 (Rubber/Glucose): lcp1=22.2, lcp2=17.1, lcp3=335.0
+                # 比活性重み (Lcp1基準): Lcp1=1.0, Lcp2=0.14, Lcp3=0.055
+
+                # 基礎発現レベル (V_base)
+                v_base = 0.1 # mmol/gDW/h
+
+                # ゴムによる誘導係数 (マイケルソン・メンテン型で飽和を表現)
+                K_rubber = 1.0 # g/L
+                induction_factor = rubber_conc / (K_rubber + rubber_conc) if rubber_conc > 1e-6 else 0.0
+
+                # 加重誘導倍率の計算
+                # Lcp1 contribution: 22.2 * 1.0 = 22.2
+                # Lcp2 contribution: 17.1 * 0.14 = 2.39
+                # Lcp3 contribution: 335.0 * 0.055 = 18.42
+                # Total max induction = 22.2 + 2.39 + 18.42 = 43.01
+                max_induction = 43.01
+
+                effective_induction = 1.0 + (max_induction * induction_factor)
+
+                # グルコースによる抑制 (CCR)
+                K_inhibition = 0.05 # mM
+                repression_factor = K_inhibition / (K_inhibition + glc_conc)
+
+                # 最終的なフラックス上限
+                lcp_limit = v_base * effective_induction * repression_factor
+                lcp_rxn.upper_bound = lcp_limit
+
+            # ゴム(ポリマー)の取り込み制約 (旧ロジックとの互換性)
+            target_rubber_ids = ['EX_rubber_e', 'rubber_high_e', 'R_EX_rubber_e']
+
+            for rid in target_rubber_ids:
+                actual_rid = self.exchange_reactions[species_name].get(rid) or (rid if rid in model.reactions else None)
+                if actual_rid and actual_rid in model.reactions:
+                    rxn = model.reactions.get_by_id(actual_rid)
+                    concentration = self.state.rubber_concentration
+                    uptake_limit = max_uptake_rate * concentration / (1.0 + concentration)
+                    rxn.lower_bound = -uptake_limit
+                    break
+
     
     def solve_fba(self, species_name: str) -> Optional[cobra.Solution]:
-        """
-        単一種のFBAを解く
-        
-        Args:
-            species_name: 種名
-        
-        Returns:
-            FBA解（失敗時はNone）
-        """
         model = self.models[species_name]
-        
-        # 【修正】必須栄養素の枯渇チェック（FBA実行前）
-        essential_nutrients = ['glc__D_e', 'pi_e', 'nh4_e', 'o2_e']
-        for met_id in essential_nutrients:
-            conc = self.state.metabolites.get(met_id, 0.0)
-            if conc < 0.001:  # 0.001 mM 未満は枯渇とみなす
-                # 増殖速度を0に設定して即座にリターン
-                if not hasattr(self, '_nutrient_depletion_logged'):
-                    self._nutrient_depletion_logged = set()
-                
-                if species_name not in self._nutrient_depletion_logged:
-                    print(f"  ⚠️  {species_name}: {met_id} 枯渇 ({conc:.6f} mM) → 増殖停止")
-                    self._nutrient_depletion_logged.add(species_name)
-                
-                return None
-        
-        # FBA成功/失敗カウンター（デバッグ用）
         if not hasattr(self, '_fba_stats'):
             self._fba_stats = {name: {'success': 0, 'failure': 0} for name in self.models.keys()}
-        
-        try:
-            solution = model.optimize()
             
+        try:
+            # 数値的不安定性によるクラッシュを避けるため、最適化を実行
+            solution = model.optimize()
             if solution.status == 'optimal':
-                # 解の妥当性をチェック
-                if solution.objective_value < 0:
-                    print(f"⚠️  {species_name}: 負の目的関数値 ({solution.objective_value:.4f})")
-                    self._fba_stats[species_name]['failure'] += 1
+                # 極端な値（Inf/-Inf/NaN）をチェック
+                if not np.isfinite(solution.objective_value):
                     return None
-                
-                # 異常に大きい値をチェック
-                if solution.objective_value > 1000:
-                    print(f"⚠️  {species_name}: 異常に大きい目的関数値 ({solution.objective_value:.4f})")
-                    self._fba_stats[species_name]['failure'] += 1
-                    return None
-                
                 self._fba_stats[species_name]['success'] += 1
-                
-                # 最初の10回のFBA成功をログ
-                if self._fba_stats[species_name]['success'] <= 10:
-                    print(f"  ✅ {species_name}: FBA成功 (growth={solution.objective_value:.4f} 1/h)")
-                
                 return solution
             else:
                 self._fba_stats[species_name]['failure'] += 1
-                print(f"⚠️  {species_name}: FBA最適化失敗 (status: {solution.status})")
-                
-                # 初回失敗時のみ詳細診断（ログの氾濫を防ぐ）
-                if not hasattr(self, '_diagnosed'):
-                    self._diagnosed = set()
-                
-                if species_name not in self._diagnosed:
-                    self._diagnose_infeasibility(species_name, model)
-                    self._diagnosed.add(species_name)
-                
                 return None
-                
         except Exception as e:
             self._fba_stats[species_name]['failure'] += 1
-            print(f"❌ {species_name}: FBA解法エラー: {e}")
+            print(f"⚠️ {species_name}: Solver Numerical Instability / Crash suppressed: {e}")
             return None
-    
-    def update_biomass(self, species_name: str, growth_rate: float):
-        """
-        バイオマスを更新
-        
-        Args:
-            species_name: 種名
-            growth_rate: 増殖速度 [1/h]
-        """
+
+    def update_biomass(self, species_name: str, growth_rate: float) -> float:
         species_state = self.state.species[species_name]
+        inhibition_factor = 1.0 # 初期値
         
-        # 【修正】増殖速度を現実的な範囲にクリップ（-0.5 - 0.5 1/h）
-        # 0.8 でも高すぎる → 0.5 に引き下げ
-        growth_rate = np.clip(growth_rate, -0.5, 0.5)
-        
-        # dX/dt = μ * X
-        dX = growth_rate * species_state.biomass * self.dt
-        new_biomass = species_state.biomass + dX
-        
-        # 【修正】バイオマスを妥当な範囲にクリップ（0.001 - 10 g/L）
-        # 20 g/L でも高すぎる → 10 g/L に引き下げ
-        new_biomass = np.clip(new_biomass, 0.001, 10.0)
-        
-        species_state.biomass = new_biomass
-        species_state.growth_rate = growth_rate
-    
-    def update_metabolites(
-        self,
-        species_name: str,
-        solution: cobra.Solution
-    ):
-        """
-        代謝物濃度を更新
-        
-        Args:
-            species_name: 種名
-            solution: FBA解
-        """
-        species_state = self.state.species[species_name]
-        biomass = species_state.biomass
-        
-        # 交換反応のフラックスを取得
-        for met_id, rxn_id in self.exchange_reactions[species_name].items():
-            flux = solution.fluxes[rxn_id]  # mmol/gDW/h
+        # 負の増殖速度（数値誤差または意図的なDecay）の処理
+        if growth_rate < 0:
+            effective_growth_rate = growth_rate # Decayをそのまま適用
+        else:
+            h_e_conc = max(1e-12, self.state.metabolites.get('h_e', 0.0001))
+            current_ph = -np.log10(h_e_conc / 1000.0)
             
-            # フラックスの妥当性チェック（異常値を除外）
-            if abs(flux) > 100:  # 100 mmol/gDW/h を超える異常値を除外（より厳しく）
-                continue
-            
-            # 環境中の代謝物濃度を更新
-            # flux > 0: 分泌（環境に追加）, flux < 0: 取り込み（環境から減少）
-            # 単位変換: [mmol/gDW/h] * [gDW/L] * [h] / [L] = [mmol/L] = [mM]
-            delta_concentration = flux * biomass * self.dt / self.volume
-            
-            if met_id in self.state.metabolites:
-                new_concentration = self.state.metabolites[met_id] + delta_concentration
-                # 濃度を物理的に妥当な範囲に制限（0-100 mM）
-                self.state.metabolites[met_id] = np.clip(new_concentration, 0.0, 100.0)
-            elif delta_concentration > 0:
-                # 新規代謝物の分泌
-                self.state.metabolites[met_id] = min(delta_concentration, 100.0)
-            
-            # 取り込み・分泌速度を記録
-            if flux < 0:
-                species_state.metabolite_uptake[met_id] = -flux
-            elif flux > 0:
-                species_state.metabolite_secretion[met_id] = flux
-    
-    def degrade_rubber(self, degradation_rates: Dict[str, float]):
-        """
-        天然ゴムの分解
-        
-        Args:
-            degradation_rates: 各種の分解速度 {species_name: rate [g/gDW/h]}
-        """
-        total_degradation = 0.0
-        degradation_details = []
-        
-        for species_name, rate in degradation_rates.items():
-            biomass = self.state.species[species_name].biomass
-            degradation = rate * biomass * self.dt
-            total_degradation += degradation
-            degradation_details.append(f"{species_name[:20]}: {degradation:.6f} g (biomass={biomass:.4f}, rate={rate:.4f})")
-        
-        # デバッグ出力を強化（最初の10ステップ）
-        if not hasattr(self, '_rubber_debug_count'):
-            self._rubber_debug_count = 0
-        
-        if self._rubber_debug_count < 10:
-            print(f"\n  🔬 ゴム分解デバッグ (t={self.state.time:.2f}h, ステップ{self._rubber_debug_count}):")
-            print(f"    ゴム残量: {self.state.rubber_concentration:.6f} g/L")
-            print(f"    総分解量: {total_degradation:.6f} g")
-            for detail in degradation_details:
-                print(f"    {detail}")
-            self._rubber_debug_count += 1
-        
-        self.state.rubber_concentration -= total_degradation
-        self.state.rubber_concentration = max(0, self.state.rubber_concentration)
-        
-        # 分解産物（イソプレノイド）を環境に追加
-        # 簡略化: ゴム1gから0.5 mmolのイソプレノイドが生成されると仮定
-        isoprene_yield = 0.5  # mmol/g
-        isoprene_produced = total_degradation * isoprene_yield / self.volume
-        
-        if 'isoprene' in self.state.metabolites:
-            self.state.metabolites['isoprene'] += isoprene_produced
-    
-    def step(
-        self,
-        rubber_degradation_rates: Dict[str, float],
-        amino_acid_supplementation: Dict[str, float]
-    ) -> ConsortiumState:
-        """
-        1タイムステップのシミュレーション
-        
-        Args:
-            rubber_degradation_rates: ゴム分解速度 {species_name: rate}
-            amino_acid_supplementation: アミノ酸補給 {amino_acid_id: concentration [mM]}
-        
-        Returns:
-            更新後のコンソーシアム状態
-        """
-        # アミノ酸補給（0-10 mMの範囲にクリップ）
-        # BiGG Models標準IDを使用
-        amino_acid_map = {
-            'arginine': 'arg__L_e',
-            'tryptophan': 'trp__L_e',
-            'leucine': 'leu__L_e'
-        }
-        
-        for aa_name, met_id in amino_acid_map.items():
-            supplement = amino_acid_supplementation.get(aa_name, 0.0)
-            supplement = np.clip(supplement, 0.0, 10.0)
-            if met_id in self.state.metabolites:
-                self.state.metabolites[met_id] += supplement
-                # 代謝物濃度も上限を設定（0-100 mM）
-                self.state.metabolites[met_id] = np.clip(
-                    self.state.metabolites[met_id], 0.0, 100.0
-                )
+            if 'Lactobacillus' in species_name:
+                opt_ph, lower_tol, upper_tol, decay = 5.5, 1.5, 1.0, 2.0
+                if current_ph < opt_ph: ph_diff = max(0, opt_ph - current_ph - lower_tol)
+                else: ph_diff = max(0, current_ph - opt_ph - upper_tol)
             else:
-                self.state.metabolites[met_id] = supplement
-        
-        # 各種のFBAを解く
-        for species_name in self.models.keys():
-            # 取り込み制約を設定
-            self.set_uptake_constraints(species_name, self.state.metabolites)
+                opt_ph, tolerance, decay = 7.0, 1.0, 2.0
+                ph_diff = max(0, abs(current_ph - opt_ph) - tolerance)
             
-            # FBAを解く
+            if ph_diff > 0: inhibition_factor *= np.exp(-decay * ph_diff)
+
+            # --- 科学的修正: 避難所の破壊（極限pHでの死滅） ---
+            death_rate = 0.0
+            if current_ph > 10.5:
+                # 強アルカリ下での細胞溶解: pH 11.9で μ = -0.2/h
+                death_rate = 0.2 * (current_ph - 10.5) / (11.9 - 10.5)
+            elif current_ph < 4.0:
+                death_rate = 0.1 * (4.0 - current_ph) / (4.0 - 2.0)
+
+            if current_ph > 12.0 or current_ph < 3.0: inhibition_factor = 0.0
+
+            effective_growth_rate = (growth_rate * inhibition_factor) - death_rate
+
+        effective_growth_rate = np.clip(effective_growth_rate, -0.5, 2.0)
+
+        total_biomass = sum(s.biomass for s in self.state.species.values())
+        capacity_factor = max(0.0, 1.0 - total_biomass / self.carrying_capacity)
+
+        dX = effective_growth_rate * species_state.biomass * (capacity_factor if effective_growth_rate > 0 else 1.0) * self.dt
+        # 下限を 0.0 にして絶滅を許可する
+        species_state.biomass = np.clip(species_state.biomass + dX, 0.0, self.carrying_capacity)
+        species_state.growth_rate = effective_growth_rate
+        species_state.last_inhibition_factor = inhibition_factor
+        return effective_growth_rate
+    
+    def _update_environment(self, species_solutions: Dict[str, Dict[str, float]]):
+        """全菌種のフラックスを統合して共有環境の状態を更新"""
+        total_delta_metabolites = {}
+        net_h_flux_mmol = 0.0
+        
+        # ステップ開始時に統計データをクリア
+        for s in self.state.species.values():
+            s.metabolite_uptake.clear()
+            s.metabolite_secretion.clear()
+
+        for species_name, fluxes in species_solutions.items():
+            biomass = self.state.species[species_name].biomass
+            for met_id, rxn_id in self.exchange_reactions[species_name].items():
+                flux = fluxes.get(rxn_id, 0.0)
+                delta = flux * biomass * self.dt / self.volume
+                
+                if met_id == 'h_e':
+                    net_h_flux_mmol += delta
+                elif met_id == 'nh4_e' and flux > 0:
+                    # アンモニア放出による中和効果 (NH3 + H+ -> NH4+)
+                    net_h_flux_mmol -= delta
+                elif met_id == '2mba_e' and flux > 0:
+                    # 有機酸（バイオサーファクタント代替）の放出による酸性化
+                    net_h_flux_mmol += delta
+                if met_id != 'h_e':
+                    total_delta_metabolites[met_id] = total_delta_metabolites.get(met_id, 0.0) + delta
+                
+                # 個別の取り込み/分泌統計を更新
+                if flux < -1e-9: self.state.species[species_name].metabolite_uptake[met_id] = -flux
+                elif flux > 1e-9: self.state.species[species_name].metabolite_secretion[met_id] = flux
+            
+            # --- 科学的修正: PHA蓄積量の更新 ---
+            # 内部反応 'EX_pha_c' または 'EX_phb_c' のフラックスを累積
+            for pha_id in ['EX_pha_c', 'EX_phb_c']:
+                pha_flux = fluxes.get(pha_id, 0.0)
+                if pha_flux > 0: # 蓄積
+                    self.state.species[species_name].pha_accumulated += pha_flux * biomass * self.dt
+        for met_id, delta in total_delta_metabolites.items():
+            if met_id in self.state.metabolites:
+                self.state.metabolites[met_id] = max(0.0, self.state.metabolites[met_id] + delta)
+            elif delta > 0:
+                self.state.metabolites[met_id] = delta
+
+        # --- 科学的 pH 更新 (Henderson-Hasselbalch) ---
+        self.buffer_base -= net_h_flux_mmol
+        self.buffer_acid += net_h_flux_mmol
+        self.buffer_base = np.clip(self.buffer_base, 0.001, self.buffer_total - 0.001)
+        self.buffer_acid = self.buffer_total - self.buffer_base
+        
+        current_ph = self.pKa + np.log10(self.buffer_base / self.buffer_acid)
+        self.state.metabolites['h_e'] = 10**(3.0 - current_ph)
+
+    def degrade_rubber(self, degradation_rates: Dict[str, float]):
+        total_degradation_g = 0.0
+        
+        # --- 科学的シナジー: 10 kDa 糖脂質タンパク質複合体効果 ---
+        # 界面活性剤（BS）による酵素反応の活性化。一般に1.2〜1.5倍程度の向上が報告されている。
+        # 3.6倍の向上はコンソーシアム全体の相乗効果（Lcp/Rox/pH安定化）による合算結果として目指す。
+        bs_conc_mM = self.state.metabolites.get('biosurfactant_e', 0.0)
+        # 飽和定数 K_bs = 0.01 mM, 最大1.5倍 (1.0 + 0.5) の加速に設定
+        bs_boost = 1.0 + (0.5 * bs_conc_mM / (0.01 + bs_conc_mM))
+        
+        for species_name, species_state in self.state.species.items():
+            # FBAモデルによるアクティブなゴム分解フラックスを取得
+            target_rubber_ids = ['EX_rubber_e', 'rubber_high_e', 'R_EX_rubber_e']
+            fba_rubber_flux = 0.0
+            for rid in target_rubber_ids:
+                if rid in species_state.metabolite_uptake:
+                    fba_rubber_flux = species_state.metabolite_uptake[rid]
+                    break
+            
+            # ゴム(C5H8)の分子量 68.12. BS効果を反映
+            rate = (abs(fba_rubber_flux) * 68.12 / 1000.0) * bs_boost
+            total_degradation_g += rate * species_state.biomass * self.dt
+        
+        self.state.rubber_concentration = max(0.0, self.state.rubber_concentration - total_degradation_g)
+        # 1gのゴム(C5H8)から約14.68mmolの断片(C5H8O0.5)が生成される計算 (1000/68.12)
+        fragment_mmol = total_degradation_g * 14.68
+        self.state.metabolites['rubber_fragment_e'] = self.state.metabolites.get('rubber_fragment_e', 0.0) + fragment_mmol
+            
+    def _log_telemetry(self):
+        if not self.data_log_path:
+            return
+            
+        file_exists = os.path.exists(self.data_log_path)
+        with open(self.data_log_path, 'a', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=self.log_fieldnames)
+            if not self._log_header_initialized and not file_exists:
+                writer.writeheader()
+                self._log_header_initialized = True
+            elif not self._log_header_initialized:
+                self._log_header_initialized = True
+
+            for species_name, species_state in self.state.species.items():
+                # ログ用データの収集
+                row = {
+                    'time': self.state.time,
+                    'species': species_name,
+                    'growth_rate': species_state.growth_rate,
+                    'biomass': species_state.biomass,
+                    'pha_accumulated': species_state.pha_accumulated,
+                    'rubber_concentration': self.state.rubber_concentration,
+                    'cumulative_co2': self.cumulative_co2_emission,
+                    'conc_glc__D_e': self.state.metabolites.get('glc__D_e', 0.0),
+                    'conc_nh4_e': self.state.metabolites.get('nh4_e', 0.0),
+                    'conc_o2_e': self.state.metabolites.get('o2_e', 0.0),
+                    'conc_pi_e': self.state.metabolites.get('pi_e', 0.0),
+                    'conc_arg__L_e': self.state.metabolites.get('arg__L_e', 0.0),
+                    'conc_trp__L_e': self.state.metabolites.get('trp__L_e', 0.0),
+                    'conc_leu__L_e': self.state.metabolites.get('leu__L_e', 0.0),
+                    'conc_rubber_fragment_e': self.state.metabolites.get('rubber_fragment_e', 0.0),
+                    'conc_odtd_e': self.state.metabolites.get('odtd_e', 0.0),
+                    'conc_h2o_e': self.state.metabolites.get('h2o_e', 0.0),
+                    'conc_h_e': self.state.metabolites.get('h_e', 0.0001),
+                    'flux_EX_co2_e': species_state.metabolite_secretion.get('co2_e', 0.0),
+                    'flux_EX_pha_c': species_state.metabolite_secretion.get('pha_c', 0.0),
+                    'flux_EX_phb_c': species_state.metabolite_secretion.get('phb_c', 0.0),
+                    'flux_EX_rubber_fragment_e': species_state.metabolite_secretion.get('rubber_fragment_e', 0.0),
+                    'flux_EX_odtd_e': species_state.metabolite_secretion.get('odtd_e', 0.0)
+                }
+                writer.writerow(row)
+
+    def step(self, rubber_degradation_rates: Dict[str, float], nutrient_supplementation: Dict[str, float], dynamic_kla: float = 50.0) -> ConsortiumState:
+        # 溶存酸素の更新
+        o2_sat = 0.25
+        current_o2 = self.state.metabolites.get('o2_e', o2_sat)
+        self.state.metabolites['o2_e'] = min(o2_sat, current_o2 + dynamic_kla * (o2_sat - current_o2) * self.dt)
+
+        # 栄養添加 (種特異的栄養素のみ)
+        supplementation_map = {
+            'sn_or16': 'mlttr_e', # OR16専用 (マルトトリオース)
+            'sn_ns21': 'ptrc_e',  # NS21専用 (プトレシン)
+            'sn_lp':   'mnl_e'    # LP専用 (マンニトール)
+        }
+        for nut_name, met_id in supplementation_map.items():
+            supplement = np.clip(nutrient_supplementation.get(nut_name, 0.0), 0.0, 10.0)
+            self.state.metabolites[met_id] = self.state.metabolites.get(met_id, 0.0) + supplement
+        
+        # 【科学的整合性】酵母エキス(YE)相当の複合栄養源の添加
+        # ここに含まれるグルコース等の共通栄養源を全菌種が奪い合う
+        if 'yeast_extract' in nutrient_supplementation:
+            ye_amount = np.clip(nutrient_supplementation['yeast_extract'], 0.0, 10.0)
+            ye_composition = {
+                'glc__D_e': 1.0,  # 共通炭素源 (グルコース)
+                'nh4_e': 0.5,     # 共通窒素源 (アンモニウム)
+                # アミノ酸
+                'arg__L_e': 0.1, 'trp__L_e': 0.05, 'leu__L_e': 0.1, 'ile__L_e': 0.1, 'val__L_e': 0.1,
+                'lys__L_e': 0.1, 'met__L_e': 0.05, 'phe__L_e': 0.05, 'his__L_e': 0.05, 'tyr__L_e': 0.05,
+                'thr__L_e': 0.1, 'cys__L_e': 0.05, 'ala__L_e': 0.1, 'asp__L_e': 0.1, 'glu__L_e': 0.1,
+                'gly_e': 0.1, 'pro__L_e': 0.1, 'ser__L_e': 0.1, 'asn__L_e': 0.1, 'gln__L_e': 0.1,
+                # ビタミン・核酸
+                'nac_e': 0.01, 'ribflv_e': 0.01, 'pnto__R_e': 0.01, 'thm_e': 0.01, 
+                'btn_e': 0.001, '4abz_e': 0.01, 'fol_e': 0.001, 'nicnt_e': 0.01,
+                'ade_e': 0.01, 'gua_e': 0.01, 'ura_e': 0.01, 'cytd_e': 0.01
+            }
+            for met_id, coeff in ye_composition.items():
+                self.state.metabolites[met_id] = self.state.metabolites.get(met_id, 0.0) + ye_amount * coeff
+
+        # 各種の代謝計算
+        total_co2_flux = 0.0
+        species_solutions = {}
+        
+        for species_name in self.models.keys():
+            self.set_uptake_constraints(species_name, self.state.metabolites, max_uptake_rate=20.0)
             solution = self.solve_fba(species_name)
             
             if solution is not None:
-                # バイオマス更新
-                growth_rate = solution.objective_value
-                self.update_biomass(species_name, growth_rate)
+                raw_mu = solution.objective_value
+                eff_mu = self.update_biomass(species_name, raw_mu)
+                factor = (eff_mu / raw_mu) if raw_mu > 1e-6 else self.state.species[species_name].last_inhibition_factor
                 
-                # 代謝物濃度更新
-                self.update_metabolites(species_name, solution)
+                # スケーリング済みフラックスを保存
+                species_solutions[species_name] = {k: v * factor for k, v in solution.fluxes.items()}
+                
+                # CO2排出の集計
+                co2_rxn = self.exchange_reactions[species_name].get('co2_e')
+                if co2_rxn:
+                    total_co2_flux += species_solutions[species_name][co2_rxn] * self.state.species[species_name].biomass
             else:
-                # FBA失敗時は増殖速度を0に設定
-                self.state.species[species_name].growth_rate = 0.0
-        
-        # ゴム分解
+                self.update_biomass(species_name, -0.01)
+
+        # 全菌種のフラックスを統合して環境を更新
+        self._update_environment(species_solutions)
+
+        # ゴム分解の実行
         self.degrade_rubber(rubber_degradation_rates)
         
-        # 時刻を進める
-        self.state.time += self.dt
+        # CO2蓄積
+        self.cumulative_co2_emission += total_co2_flux * self.dt
         
+        # ログ出力
+        if self.current_step % 1 == 0: # 毎ステップ記録
+            self._log_telemetry()
+
+        self.state.time += self.dt
+        self.current_step += 1
         return self.state
     
     def get_state_vector(self) -> np.ndarray:
-        """
-        状態ベクトルを取得（RL環境用）
-        
-        Returns:
-            状態ベクトル（正規化・クリップ済み）
-        """
         state_vec = []
-        
-        # 【修正】バイオマス濃度（0-10 g/Lの範囲にクリップ）
-        for species_name in sorted(self.models.keys()):
-            biomass = self.state.species[species_name].biomass
-            biomass = np.clip(biomass, 0.0, 10.0)
-            state_vec.append(biomass)
-        
-        # 【修正】増殖速度（-0.5 - 0.5 1/hの範囲にクリップ）
-        for species_name in sorted(self.models.keys()):
-            growth_rate = self.state.species[species_name].growth_rate
-            growth_rate = np.clip(growth_rate, -0.5, 0.5)
-            state_vec.append(growth_rate)
-        
-        # 主要代謝物濃度（0-100 mMの範囲にクリップ）
-        key_metabolites = ['isoprene', 'arg__L_e', 'trp__L_e', 'leu__L_e']
-        for met_id in key_metabolites:
-            conc = self.state.metabolites.get(met_id, 0.0)
-            conc = np.clip(conc, 0.0, 100.0)
-            state_vec.append(conc)
-        
-        # ゴム濃度（0-100000 g/Lの範囲にクリップ）
-        rubber = np.clip(self.state.rubber_concentration, 0.0, 100000.0)
-        state_vec.append(rubber)
-        
-        # NaNやInfをチェックして置き換え
-        state_array = np.array(state_vec, dtype=np.float64)
-        state_array = np.nan_to_num(state_array, nan=0.0, posinf=100.0, neginf=0.0)
-        
-        return state_array.astype(np.float32)
+        for name in sorted(self.models.keys()): state_vec.append(np.clip(self.state.species[name].biomass, 0.0, self.carrying_capacity))
+        for name in sorted(self.models.keys()): state_vec.append(np.clip(self.state.species[name].growth_rate, -0.5, 2.0))
+        for met in ['glc__D_e', 'nh4_e', 'rubber_fragment_e', 'odtd_e', 'arg__L_e', 'trp__L_e', 'leu__L_e', 'h_e']:
+            state_vec.append(np.clip(self.state.metabolites.get(met, 0.0), 0.0, 1000.0))
+        for name in sorted(self.models.keys()): state_vec.append(np.clip(self.state.species[name].pha_accumulated, 0.0, 1000.0))
+        state_vec.append(np.clip(self.state.rubber_concentration, 0.0, 100000.0))
+        return np.nan_to_num(np.array(state_vec, dtype=np.float32), nan=0.0)

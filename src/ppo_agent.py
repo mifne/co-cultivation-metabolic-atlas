@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback, EvalCallback
-from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
+from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecNormalize
 from stable_baselines3.common.monitor import Monitor
 from typing import Optional, Dict, Any, Callable
 import numpy as np
@@ -21,7 +21,7 @@ class ConsortiumPPOAgent:
     def __init__(
         self,
         env,
-        learning_rate: float = 3e-4,
+        learning_rate: float | Callable[[float], float] = 3e-4,
         n_steps: int = 2048,
         batch_size: int = 64,
         n_epochs: int = 10,
@@ -33,7 +33,8 @@ class ConsortiumPPOAgent:
         max_grad_norm: float = 0.5,
         device: str = 'cpu',
         verbose: int = 1,
-        n_envs: int = 1  # 並列環境数
+        n_envs: int = 1,  # 並列環境数
+        tensorboard_log: Optional[str] = None
     ):
         """
         Args:
@@ -50,18 +51,21 @@ class ConsortiumPPOAgent:
             max_grad_norm: 勾配クリッピング
             device: 'auto', 'cpu', 'cuda'
             verbose: ログレベル
+            tensorboard_log: TensorBoardログの保存先
         """
-        # 環境をベクトル化（並列化対応）
-        if n_envs > 1:
-            if callable(env):
-                self.env = SubprocVecEnv([env for _ in range(n_envs)])
-            else:
-                self.env = DummyVecEnv([lambda: env])
-                n_envs = 1
+        # --- 環境をベクトル化（並列化対応） ---
+        if isinstance(env, list):
+            # 関数のリストが渡された場合（SubprocVecEnv）
+            self.env = SubprocVecEnv(env)
+            self.n_envs = len(env)
         else:
-            self.env = DummyVecEnv([lambda: env])
+            # 単一の環境（関数またはインスタンス）が渡された場合
+            env_fn = env if callable(env) else lambda: env
+            self.env = DummyVecEnv([env_fn])
+            self.n_envs = 1
         
-        self.n_envs = n_envs
+        # --- 数学的安定化: VecNormalize の導入 ---
+        self.env = VecNormalize(self.env, norm_obs=True, norm_reward=True, clip_obs=10.)
         
         self.model = PPO(
             policy='MlpPolicy',
@@ -77,9 +81,10 @@ class ConsortiumPPOAgent:
             vf_coef=vf_coef,
             max_grad_norm=max_grad_norm,
             verbose=verbose,
-            device='cpu',  # 強制的にCPU（deviceパラメータを無視）
+            device='cpu',  # 強制的にCPU
+            tensorboard_log=tensorboard_log,
             policy_kwargs=dict(
-                net_arch=dict(pi=[256, 256], vf=[256, 256])  # SB3 v1.8.0以降の形式
+                net_arch=dict(pi=[256, 256], vf=[256, 256])
             )
         )
         
@@ -134,7 +139,7 @@ class ConsortiumPPOAgent:
             save_path=str(checkpoint_path),
             name_prefix='ppo_consortium',
             save_replay_buffer=False,
-            save_vecnormalize=False
+            save_vecnormalize=True
         )
         callbacks.append(checkpoint_callback)
         
@@ -153,7 +158,10 @@ class ConsortiumPPOAgent:
         
         # ユーザー指定のコールバックを追加
         if callback is not None:
-            callbacks.append(callback)
+            if isinstance(callback, list):
+                callbacks.extend(callback)
+            else:
+                callbacks.append(callback)
         
         # 訓練実行
         self.model.learn(
@@ -191,7 +199,7 @@ class ConsortiumPPOAgent:
     
     def save(self, path: str):
         """
-        モデルを保存
+        モデルと正規化統計を保存
         
         Args:
             path: 保存先パス
@@ -199,16 +207,46 @@ class ConsortiumPPOAgent:
         save_path = Path(path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
         self.model.save(str(save_path))
+        
+        # VecNormalizeの統計を保存 (拡張子 .pkl)
+        stats_path = str(save_path.with_suffix('.pkl'))
+        self.env.save(stats_path)
+        
         print(f"💾 モデル保存: {save_path}")
+        print(f"📊 正規化統計保存: {stats_path}")
     
     def load(self, path: str):
         """
-        モデルを読み込み
+        モデルと正規化統計を読み込み
         
         Args:
             path: モデルファイルパス
         """
+        # モデルの読み込み
         self.model = PPO.load(path, env=self.env)
+        
+        # VecNormalizeの統計を読み込み
+        path_obj = Path(path)
+        stats_path = path_obj.with_suffix('.pkl')
+        
+        # CheckpointCallbackの命名規則に対応: prefix + "_vecnormalize_" + steps + "_steps.pkl"
+        # ここでは単純に .zip を除去して _vecnormalize_ を含むファイルを検索する
+        checkpoint_stats_path = path_obj.parent / path_obj.name.replace("ppo_consortium", "ppo_consortium_vecnormalize").replace(".zip", ".pkl")
+
+        if stats_path.exists():
+            load_path = stats_path
+        elif checkpoint_stats_path.exists():
+            load_path = checkpoint_stats_path
+        else:
+            load_path = None
+
+        if load_path:
+            # 現在の venv を使って VecNormalize をロード
+            self.env = VecNormalize.load(str(load_path), self.env.venv)
+            # 再構築した env をモデルに再接続
+            self.model.set_env(self.env)
+            print(f"📂 正規化統計読み込み: {load_path}")
+        
         print(f"📂 モデル読み込み: {path}")
     
     def plot_training_history(self, save_path: Optional[Path] = None):
@@ -318,10 +356,11 @@ class ConsortiumPPOAgent:
             episode_length = 0
             initial_rubber = None
             
-            while not done:
+            while True:
                 action, _ = self.predict(obs, deterministic=deterministic)
                 obs, reward, done, info = self.env.step(action)
                 
+                # ベクトル環境の最初の1つのみを集計
                 episode_reward += reward[0]
                 episode_length += 1
                 
@@ -332,6 +371,7 @@ class ConsortiumPPOAgent:
                     final_rubber = info[0].get('rubber_remaining', 0)
                     degradation = (initial_rubber - final_rubber) / initial_rubber if initial_rubber > 0 else 0
                     rubber_degradations.append(degradation)
+                    break
             
             episode_rewards.append(episode_reward)
             episode_lengths.append(episode_length)
@@ -362,18 +402,19 @@ class TrainingCallback(BaseCallback):
     
     def _on_step(self) -> bool:
         """各ステップで呼ばれる"""
-        # エピソード終了時の処理
-        if self.locals.get('dones')[0]:
-            info = self.locals.get('infos')[0]
-            
-            # 報酬とエピソード長を記録
-            if 'episode' in info:
-                self.history['episode_rewards'].append(info['episode']['r'])
-                self.history['episode_lengths'].append(info['episode']['l'])
-            
-            # ゴム分解率を記録
-            if 'rubber_remaining' in info:
-                self.history['rubber_degradation'].append(info['rubber_remaining'])
+        # 全ての環境の状態をチェック
+        for i, done in enumerate(self.locals.get('dones')):
+            if done:
+                info = self.locals.get('infos')[i]
+                
+                # 報酬とエピソード長を記録
+                if 'episode' in info:
+                    self.history['episode_rewards'].append(info['episode']['r'])
+                    self.history['episode_lengths'].append(info['episode']['l'])
+                
+                # ゴム分解率を記録
+                if 'rubber_remaining' in info:
+                    self.history['rubber_degradation'].append(info['rubber_remaining'])
         
         return True
     
