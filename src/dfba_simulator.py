@@ -189,7 +189,10 @@ class dFBASimulator:
         
         # 1. すべての交換反応の吸収(lower_bound)を一旦 0 にリセット (培地にないものの吸収を禁止)
         for rxn in model.exchanges:
-            # lower_bound を 0 にしたいが、upper_bound が負の場合は lb <= ub を維持するためそれに合わせる
+            # ゴムと特殊な Sink 反応はリセット対象から除外
+            if 'rubber_e' in rxn.id or 'pha_c' in rxn.id or 'phb_c' in rxn.id:
+                continue
+            # lower_bound を 0 にしたいが、upper_bound が負の場合は lb <= ub を維持するためそれに合 わせる
             rxn.lower_bound = min(0.0, rxn.upper_bound)
 
         # 2. H2O と H+ は常に供給可能とする（水系溶媒のため）
@@ -201,21 +204,21 @@ class dFBASimulator:
         # 3. 培地に存在する代謝物の取り込み制約を設定
         for met_id, concentration in metabolite_concentrations.items():
             if met_id in ['h2o_e', 'h_e']: continue # 既に処理済み
-            
+
             if met_id in self.exchange_reactions[species_name]:
                 rxn_id = self.exchange_reactions[species_name][met_id]
                 try:
                     rxn = model.reactions.get_by_id(rxn_id)
                     # モデル本来の最大取り込み能力(original_bounds)を考慮
                     orig_lb, _ = self.original_bounds[species_name].get(rxn_id, (-1000.0, 1000.0))
-                    
+
                     # ミカエリス・メンテン型の速度制限
                     Km = 0.01 if met_id in ['glc__D_e', 'o2_e', 'pi_e', 'nh4_e'] else 0.1
                     uptake_limit = max_uptake_rate * concentration / (Km + concentration)
-                    
+
                     # 培地濃度が極めて低い場合は完全に遮断
                     if concentration < 1e-9: uptake_limit = 0.0
-                    
+
                     # 負の値として設定 (吸収)
                     combined_lb = max(-uptake_limit, orig_lb)
                     rxn.lower_bound = min(0.0, combined_lb)
@@ -223,6 +226,14 @@ class dFBASimulator:
 
         # 4. 【科学的整合性】ゴム分解・発現抑制の特殊ロジック
         if 'OR16' in species_name:
+            # ゴム取り込みを常に開放 (上限はLCP反応側で制御される)
+            if 'rubber_e' in self.exchange_reactions[species_name]:
+                rxn_id = self.exchange_reactions[species_name]['rubber_e']
+                try:
+                    model.reactions.get_by_id(rxn_id).lower_bound = -1000.0
+                except:
+                    pass
+
             # ゴム分解酵素(LCP)の発現制御
             glc_conc = metabolite_concentrations.get('glc__D_e', 0.0)
             rubber_conc = self.state.rubber_concentration
