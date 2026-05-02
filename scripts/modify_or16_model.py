@@ -85,7 +85,7 @@ def modify_or16_model(input_path, output_path):
         if gid in model.genes:
             model.genes.get_by_id(gid).name = name
 
-    # 3. Isoprenoid aldehyde dehydrogenase
+    # 3. Isoprenoid aldehyde dehydrogenase (OxiAB homolog)
     if 'ISOP_ALDH' in model.reactions:
         rxn_aldh = model.reactions.get_by_id('ISOP_ALDH')
     else:
@@ -93,20 +93,27 @@ def modify_or16_model(input_path, output_path):
         rxn_aldh.name = 'Isoprenoid aldehyde dehydrogenase'
         model.add_reactions([rxn_aldh])
     
-    nad = get_met('nad_c')
-    nadh = get_met('nadh_c')
+    # 科学的知見: OxiABはモリブデンヒドロキシラーゼであり、H2Oを酸素源とし、シトクロムcを電子受容体とする
+    ficytc = get_met('ficytc_c') # Ferricytochrome c (oxidized)
+    focytc = get_met('focytc_c') # Ferrocytochrome c (reduced)
     h2o = get_met('h2o_c')
     h = get_met('h_c')
-    rxn_aldh.add_metabolites({aldehyde: -1, nad: -1, h2o: -1, acid: 1, nadh: 1, h: 1}, combine=False)
+    # 古い代謝物をクリア
+    rxn_aldh.add_metabolites({m: -c for m, c in rxn_aldh.metabolites.items()})
+    # 新しい量論をセット
+    rxn_aldh.add_metabolites({
+        aldehyde: -1, h2o: -1, ficytc: -2,
+        acid: 1, focytc: 2, h: 2
+    }, combine=False)
     rxn_aldh.lower_bound = 0
     rxn_aldh.upper_bound = 1000
 
-    # 4. Isoprenoid acyl-CoA synthetase
+    # 4. Isoprenoid acyl-CoA synthetase & Beta-oxidation (Lumped)
     if 'ISOP_ACS' in model.reactions:
         rxn_acs = model.reactions.get_by_id('ISOP_ACS')
     else:
         rxn_acs = Reaction('ISOP_ACS')
-        rxn_acs.name = 'Isoprenoid acyl-CoA synthetase'
+        rxn_acs.name = 'Isoprenoid acyl-CoA synthetase and beta-oxidation'
         model.add_reactions([rxn_acs])
     
     atp = get_met('atp_c')
@@ -115,10 +122,21 @@ def modify_or16_model(input_path, output_path):
     ppi = get_met('ppi_c')
     accoa = get_met('accoa_c')
     ppcoa = get_met('ppcoa_c')
+    nad = get_met('nad_c')
+    nadh = get_met('nadh_c')
+    fad = get_met('fad_c')
+    fadh2 = get_met('fadh2_c')
+    
+    # 古い代謝物をクリア
+    rxn_acs.add_metabolites({m: -c for m, c in rxn_acs.metabolites.items()})
+    
+    # C20のベータ酸化の正確な質量・レドックスバランス:
+    # 活性化で 1 ATP, 1 CoA -> 1 AMP, 1 PPi
+    # 7回の切断サイクルで 7 CoA, 7 NAD+, 7 FAD -> 7 NADH, 7 FADH2, 7 H+
+    # 生成物: 4 Acetyl-CoA + 4 Propionyl-CoA
     rxn_acs.add_metabolites({
-        acid: -1, atp: -1, coa: -1, 
-        accoa: 4, ppcoa: 4, 
-        amp: 1, ppi: 1
+        acid: -1, atp: -1, coa: -8, nad: -7, fad: -7,
+        accoa: 4, ppcoa: 4, amp: 1, ppi: 1, nadh: 7, fadh2: 7, h: 7
     }, combine=False)
     rxn_acs.lower_bound = 0
     rxn_acs.upper_bound = 1000

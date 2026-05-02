@@ -114745,29 +114745,34 @@
       <reaction id="R_ISOP_ALDH" name="Isoprenoid aldehyde dehydrogenase" reversible="false" fast="false" fbc:lowerFluxBound="cobra_0_bound" fbc:upperFluxBound="cobra_default_ub">
         <listOfReactants>
           <speciesReference species="M_M_isoprenoid_aldehyde_c" stoichiometry="1" constant="true"/>
-          <speciesReference species="M_nad_c" stoichiometry="1" constant="true"/>
           <speciesReference species="M_h2o_c" stoichiometry="1" constant="true"/>
+          <speciesReference species="M_ficytc_c" stoichiometry="2" constant="true"/>
         </listOfReactants>
         <listOfProducts>
           <speciesReference species="M_M_isoprenoid_acid_c" stoichiometry="1" constant="true"/>
-          <speciesReference species="M_nadh_c" stoichiometry="1" constant="true"/>
-          <speciesReference species="M_h_c" stoichiometry="1" constant="true"/>
+          <speciesReference species="M_focytc_c" stoichiometry="2" constant="true"/>
+          <speciesReference species="M_h_c" stoichiometry="2" constant="true"/>
         </listOfProducts>
       </reaction>
       <reaction id="R_ISOP_ACS" name="Isoprenoid acyl-CoA synthetase" reversible="false" fast="false" fbc:lowerFluxBound="cobra_0_bound" fbc:upperFluxBound="cobra_default_ub">
         <listOfReactants>
           <speciesReference species="M_M_isoprenoid_acid_c" stoichiometry="1" constant="true"/>
           <speciesReference species="M_atp_c" stoichiometry="1" constant="true"/>
-          <speciesReference species="M_coa_c" stoichiometry="1" constant="true"/>
+          <speciesReference species="M_coa_c" stoichiometry="8" constant="true"/>
+          <speciesReference species="M_nad_c" stoichiometry="7" constant="true"/>
+          <speciesReference species="M_fad_c" stoichiometry="7" constant="true"/>
         </listOfReactants>
         <listOfProducts>
           <speciesReference species="M_accoa_c" stoichiometry="4" constant="true"/>
           <speciesReference species="M_ppcoa_c" stoichiometry="4" constant="true"/>
           <speciesReference species="M_amp_c" stoichiometry="1" constant="true"/>
           <speciesReference species="M_ppi_c" stoichiometry="1" constant="true"/>
+          <speciesReference species="M_nadh_c" stoichiometry="7" constant="true"/>
+          <speciesReference species="M_fadh2_c" stoichiometry="7" constant="true"/>
+          <speciesReference species="M_h_c" stoichiometry="7" constant="true"/>
         </listOfProducts>
       </reaction>
-      <reaction id="R_EX_rubber_e" name="Rubber exchange" reversible="false" fast="false" fbc:lowerFluxBound="cobra_0_bound" fbc:upperFluxBound="cobra_default_ub">
+      <reaction id="R_EX_rubber_e" name="Rubber exchange" reversible="true" fast="false" fbc:lowerFluxBound="cobra_default_lb" fbc:upperFluxBound="cobra_default_ub">
         <listOfReactants>
           <speciesReference species="M_M_rubber_e" stoichiometry="1" constant="true"/>
         </listOfReactants>
