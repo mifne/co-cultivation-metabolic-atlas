@@ -394,29 +394,23 @@ class dFBASimulator:
         total_degradation_g = 0.0
         
         # --- 科学的シナジー: 10 kDa 糖脂質タンパク質複合体効果 ---
-        # 界面活性剤（BS）による酵素反応の活性化。一般に1.2〜1.5倍程度の向上が報告されている。
-        # 3.6倍の向上はコンソーシアム全体の相乗効果（Lcp/Rox/pH安定化）による合算結果として目指す。
         bs_conc_mM = self.state.metabolites.get('biosurfactant_e', 0.0)
         # 飽和定数 K_bs = 0.01 mM, 最大1.5倍 (1.0 + 0.5) の加速に設定
         bs_boost = 1.0 + (0.5 * bs_conc_mM / (0.01 + bs_conc_mM))
         
         for species_name, species_state in self.state.species.items():
-            # FBAモデルによるアクティブなゴム分解フラックスを取得
-            target_rubber_ids = ['EX_rubber_e', 'rubber_high_e', 'R_EX_rubber_e']
-            fba_rubber_flux = 0.0
-            for rid in target_rubber_ids:
-                if rid in species_state.metabolite_uptake:
-                    fba_rubber_flux = species_state.metabolite_uptake[rid]
-                    break
+            # FBAモデルによるアクティブなゴム分解フラックスを取得 ('rubber_e' キーを使用)
+            fba_rubber_flux = species_state.metabolite_uptake.get('rubber_e', 0.0)
             
             # ゴム(C5H8)の分子量 68.12. BS効果を反映
+            # fba_rubber_flux は取り込み量（正の値）として記録されている
             rate = (abs(fba_rubber_flux) * 68.12 / 1000.0) * bs_boost
             total_degradation_g += rate * species_state.biomass * self.dt
         
         self.state.rubber_concentration = max(0.0, self.state.rubber_concentration - total_degradation_g)
-        # 1gのゴム(C5H8)から約14.68mmolの断片(C5H8O0.5)が生成される計算 (1000/68.12)
-        fragment_mmol = total_degradation_g * 14.68
-        self.state.metabolites['rubber_fragment_e'] = self.state.metabolites.get('rubber_fragment_e', 0.0) + fragment_mmol
+        # 注意: 断片 (rubber_fragment_e) の生成は、FBAモデル内の R_LCP 反応と
+        # その後の EX_rubber_fragment_e 分泌によって自動的に環境へ反映されるため、
+        # ここでの手動加算は二重計上を避けるため廃止する。
             
     def _log_telemetry(self):
         if not self.data_log_path:

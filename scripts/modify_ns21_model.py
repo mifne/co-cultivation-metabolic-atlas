@@ -114,14 +114,18 @@ def modify_ns21_model(input_path, output_path):
     if 'EX_rubber_fragment_e' not in [r.id for r in model.reactions]:
         rxn_ex_fragment = Reaction('EX_rubber_fragment_e')
         rxn_ex_fragment.add_metabolites({rubber_fragment_e: -1.0})
-        rxn_ex_fragment.bounds = (0, 1000) # Controlled by simulator
+        rxn_ex_fragment.bounds = (-1000, 1000) # Open for uptake/secretion
         model.add_reactions([rxn_ex_fragment])
+    else:
+        model.reactions.get_by_id('EX_rubber_fragment_e').bounds = (-1000, 1000)
     
     if 'EX_odtd_e' not in [r.id for r in model.reactions]:
         rxn_ex_odtd = Reaction('EX_odtd_e')
         rxn_ex_odtd.add_metabolites({odtd_e: -1.0})
-        rxn_ex_odtd.bounds = (0, 1000) # Secretion/Uptake
+        rxn_ex_odtd.bounds = (-1000, 1000) # Open for uptake/secretion
         model.add_reactions([rxn_ex_odtd])
+    else:
+        model.reactions.get_by_id('EX_odtd_e').bounds = (-1000, 1000)
     
     # 既存の EX_rubber_e は不要になるため閉じるか削除（任意だが、混乱を防ぐため閉じる）
     if 'EX_rubber_e' in model.reactions:
