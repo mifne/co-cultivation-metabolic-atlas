@@ -123990,12 +123990,12 @@
           <speciesReference species="M_rubber_high_e" stoichiometry="1" constant="true"/>
         </listOfReactants>
       </reaction>
-      <reaction id="R_EX_odtd_e" reversible="false" fast="false" fbc:lowerFluxBound="cobra_0_bound" fbc:upperFluxBound="cobra_default_ub">
+      <reaction id="R_EX_odtd_e" reversible="true" fast="false" fbc:lowerFluxBound="cobra_default_lb" fbc:upperFluxBound="cobra_default_ub">
         <listOfReactants>
           <speciesReference species="M_odtd_e" stoichiometry="1" constant="true"/>
         </listOfReactants>
       </reaction>
-      <reaction id="R_EX_pha_c" name="PHA exchange (drain)" reversible="false" fast="false" fbc:lowerFluxBound="cobra_0_bound" fbc:upperFluxBound="cobra_0_bound">
+      <reaction id="R_EX_pha_c" name="PHA exchange (drain)" reversible="false" fast="false" fbc:lowerFluxBound="cobra_0_bound" fbc:upperFluxBound="cobra_default_ub">
         <listOfReactants>
           <speciesReference species="M_pha_c" stoichiometry="1" constant="true"/>
         </listOfReactants>
@@ -124045,13 +124045,11 @@
           <speciesReference species="M_atp_c" stoichiometry="1" constant="true"/>
           <speciesReference species="M_coa_c" stoichiometry="6" constant="true"/>
           <speciesReference species="M_nad_c" stoichiometry="4" constant="true"/>
-          <speciesReference species="M_h2o_c" stoichiometry="5" constant="true"/>
         </listOfReactants>
         <listOfProducts>
           <speciesReference species="M_accoa_c" stoichiometry="3" constant="true"/>
           <speciesReference species="M_ppcoa_c" stoichiometry="3" constant="true"/>
           <speciesReference species="M_nadh_c" stoichiometry="4" constant="true"/>
-          <speciesReference species="M_h_c" stoichiometry="5" constant="true"/>
           <speciesReference species="M_adp_c" stoichiometry="1" constant="true"/>
           <speciesReference species="M_pi_c" stoichiometry="1" constant="true"/>
         </listOfProducts>
