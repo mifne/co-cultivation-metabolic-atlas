@@ -34,24 +34,24 @@ class ConsortiumState:
 
 class dFBASimulator:
     """dFBAシミュレーター"""
-    
-    def __init__(
-        self,
-        models: Dict[str, cobra.Model],
-        initial_biomass: Dict[str, float],
-        initial_metabolites: Dict[str, float],
-        initial_rubber: float,
-        volume: float = 1.0,
-        dt: float = 0.1,
-        data_log_path: Optional[str] = None,
-        carrying_capacity: float = 20.0,
-        metabolite_inhibition_threshold: float = 20.0,
-        metabolite_inhibition_decay: float = 0.1
-    ):
+
+    def __init__(self, 
+                 models: Dict[str, cobra.Model],
+                 initial_biomass: Dict[str, float],
+                 initial_metabolites: Dict[str, float],
+                 initial_rubber: float = 100.0,
+                 volume: float = 1.0,
+                 dt: float = 0.5,
+                 data_log_path: Optional[str] = None,
+                 max_uptake_rate: float = 20.0,
+                 carrying_capacity: float = 20.0,
+                 metabolite_inhibition_threshold: float = 20.0,
+                 metabolite_inhibition_decay: float = 0.1):
         self.models = models
-        self.volume = volume
         self.dt = dt
+        self.volume = volume
         self.data_log_path = data_log_path
+        self.max_uptake_rate = max_uptake_rate
         self.carrying_capacity = carrying_capacity
         self.metabolite_inhibition_threshold = metabolite_inhibition_threshold
         self.metabolite_inhibition_decay = metabolite_inhibition_decay
@@ -184,8 +184,9 @@ class dFBASimulator:
                     print(f"      ❌ Still infeasible (status: {solution.status}) -> Problem: Model structure")
             except: pass
     
-    def set_uptake_constraints(self, species_name: str, metabolite_concentrations: Dict[str, float], max_uptake_rate: float = 20.0):
+    def set_uptake_constraints(self, species_name: str, metabolite_concentrations: Dict[str, float]):
         model = self.models[species_name]
+        max_uptake = self.max_uptake_rate
         
         # 1. すべての交換反応の吸収(lower_bound)を一旦 0 にリセット (培地にないものの吸収を禁止)
         for rxn in model.exchanges:
@@ -214,7 +215,7 @@ class dFBASimulator:
 
                     # ミカエリス・メンテン型の速度制限
                     Km = 0.01 if met_id in ['glc__D_e', 'o2_e', 'pi_e', 'nh4_e'] else 0.1
-                    uptake_limit = max_uptake_rate * concentration / (Km + concentration)
+                    uptake_limit = max_uptake * concentration / (Km + concentration)
 
                     # 培地濃度が極めて低い場合は完全に遮断
                     if concentration < 1e-9: uptake_limit = 0.0
@@ -277,7 +278,7 @@ class dFBASimulator:
                 if actual_rid and actual_rid in model.reactions:
                     rxn = model.reactions.get_by_id(actual_rid)
                     concentration = self.state.rubber_concentration
-                    uptake_limit = max_uptake_rate * concentration / (1.0 + concentration)
+                    uptake_limit = max_uptake * concentration / (1.0 + concentration)
                     rxn.lower_bound = -uptake_limit
                     break
 
@@ -362,7 +363,16 @@ class dFBASimulator:
         for species_name, fluxes in species_solutions.items():
             biomass = self.state.species[species_name].biomass
             for met_id, rxn_id in self.exchange_reactions[species_name].items():
-                flux = fluxes.get(rxn_id, 0.0)
+                # rxn_id がモデルにない場合のフォールバック（例：特殊反応）
+                actual_rid = rxn_id
+                if actual_rid not in fluxes and met_id == 'rubber_e':
+                    # モデル固有のゴム反応IDを探す
+                    for fallback in ['EX_rubber_e', 'R_EX_rubber_e', 'rubber_high_e']:
+                        if fallback in fluxes:
+                            actual_rid = fallback
+                            break
+                            
+                flux = fluxes.get(actual_rid, 0.0)
                 delta = flux * biomass * self.dt / self.volume
                 
                 if met_id == 'h_e':
@@ -466,10 +476,10 @@ class dFBASimulator:
                 writer.writerow(row)
 
     def step(self, rubber_degradation_rates: Dict[str, float], nutrient_supplementation: Dict[str, float], dynamic_kla: float = 50.0) -> ConsortiumState:
-        # 溶存酸素の更新
+        # 溶存酸素の更新 (解析解による無条件安定化)
         o2_sat = 0.25
         current_o2 = self.state.metabolites.get('o2_e', o2_sat)
-        self.state.metabolites['o2_e'] = min(o2_sat, current_o2 + dynamic_kla * (o2_sat - current_o2) * self.dt)
+        self.state.metabolites['o2_e'] = o2_sat - (o2_sat - current_o2) * np.exp(-dynamic_kla * self.dt)
 
         # 栄養添加 (種特異的栄養素のみ)
         supplementation_map = {
@@ -506,17 +516,42 @@ class dFBASimulator:
         species_solutions = {}
         
         for species_name in self.models.keys():
-            self.set_uptake_constraints(species_name, self.state.metabolites, max_uptake_rate=20.0)
+            self.set_uptake_constraints(species_name, self.state.metabolites)
+            
+            # --- 科学的修正: PHA Spillover Metabolism (窒素枯渇時のOverflow) ---
+            model = self.models[species_name]
+            if 'NS21' in species_name:
+                env_nh4 = self.state.metabolites.get('nh4_e', 0.0)
+                if env_nh4 < 0.1:  # 窒素枯渇
+                    # 目的関数をPHA生成に変更
+                    if 'EX_pha_c' in model.reactions:
+                        model.objective = 'EX_pha_c'
+                    elif 'EX_phb_c' in model.reactions:
+                        model.objective = 'EX_phb_c'
+                else:
+                    # 成長に戻す
+                    if 'Growth' in model.reactions:
+                        model.objective = 'Growth'
+
             solution = self.solve_fba(species_name)
             
             if solution is not None:
-                raw_mu = solution.objective_value
+                # 目的関数が切り替わっていても、実際のバイオマス増殖フラックスを正しく取得する
+                if 'Growth' in solution.fluxes:
+                    raw_mu = solution.fluxes['Growth']
+                elif 'BIOMASS_LLA' in solution.fluxes:
+                    raw_mu = solution.fluxes['BIOMASS_LLA']
+                else:
+                    raw_mu = solution.objective_value
+                    
                 eff_mu = self.update_biomass(species_name, raw_mu)
-                factor = (eff_mu / raw_mu) if raw_mu > 1e-6 else self.state.species[species_name].last_inhibition_factor
-                
+
+                # Flux scaling must NEVER be negative (which would reverse reactions).
+                # Living cells' metabolism scales with inhibition. Death rate decreases biomass but doesn't invert metabolism.
+                factor = self.state.species[species_name].last_inhibition_factor
+
                 # スケーリング済みフラックスを保存
-                species_solutions[species_name] = {k: v * factor for k, v in solution.fluxes.items()}
-                
+                species_solutions[species_name] = {k: v * factor for k, v in solution.fluxes.items()}                
                 # CO2排出の集計
                 co2_rxn = self.exchange_reactions[species_name].get('co2_e')
                 if co2_rxn:
