@@ -47961,6 +47961,11 @@
       <species id="M_odtd_e" name="ODTD" compartment="C_e" hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false" fbc:charge="0" fbc:chemicalFormula="C15H24O2"/>
       <species id="M_odtd_c" name="ODTD" compartment="C_c" hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false" fbc:charge="0" fbc:chemicalFormula="C15H24O2"/>
       <species id="M_rubber_fragment_e" name="Isoprene Oligomer" compartment="C_e" hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false" fbc:charge="0" fbc:chemicalFormula="C5H8O0.5"/>
+      <species id="M_M_rubber_bulk_e" name="Rubber polymer unit (C5)" compartment="C_e" hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false" fbc:charge="0" fbc:chemicalFormula="C5H8"/>
+      <species id="M_M_C30_oligo_e" name="Oligo-isoprenoid (C30)" compartment="C_e" hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false" fbc:charge="0" fbc:chemicalFormula="C30H48O2"/>
+      <species id="M_M_C30_oligo_c" name="Oligo-isoprenoid (C30)" compartment="C_c" hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false" fbc:charge="0" fbc:chemicalFormula="C30H48O2"/>
+      <species id="M_M_odtd_e" name="ODTD (C15)" compartment="C_e" hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false" fbc:charge="0" fbc:chemicalFormula="C15H24O2"/>
+      <species id="M_M_odtd_c" name="ODTD (C15)" compartment="C_c" hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false" fbc:charge="0" fbc:chemicalFormula="C15H24O2"/>
     </listOfSpecies>
     <listOfParameters>
       <parameter sboTerm="SBO:0000626" id="cobra_default_lb" value="-1000" constant="true"/>
@@ -123992,7 +123997,7 @@
       </reaction>
       <reaction id="R_EX_odtd_e" reversible="true" fast="false" fbc:lowerFluxBound="cobra_default_lb" fbc:upperFluxBound="cobra_default_ub">
         <listOfReactants>
-          <speciesReference species="M_odtd_e" stoichiometry="1" constant="true"/>
+          <speciesReference species="M_M_odtd_e" stoichiometry="1" constant="true"/>
         </listOfReactants>
       </reaction>
       <reaction id="R_EX_pha_c" name="PHA exchange (drain)" reversible="false" fast="false" fbc:lowerFluxBound="cobra_0_bound" fbc:upperFluxBound="cobra_default_ub">
@@ -124017,42 +124022,92 @@
           <fbc:geneProductRef fbc:geneProduct="G_lcl_CP015118_1_prot_ARN19706_1_1418"/>
         </fbc:geneProductAssociation>
       </reaction>
-      <reaction id="R_EX_rubber_fragment_e" reversible="true" fast="false" fbc:lowerFluxBound="cobra_default_lb" fbc:upperFluxBound="cobra_default_ub">
+      <reaction id="R_EX_rubber_fragment_e" reversible="false" fast="false" fbc:lowerFluxBound="cobra_0_bound" fbc:upperFluxBound="cobra_0_bound">
         <listOfReactants>
           <speciesReference species="M_rubber_fragment_e" stoichiometry="1" constant="true"/>
         </listOfReactants>
       </reaction>
-      <reaction id="R_R_LATA1" name="Rubber Oxygenase (LatA1/A2) - Fragment utilization" reversible="false" fast="false" fbc:lowerFluxBound="cobra_0_bound" fbc:upperFluxBound="cobra_default_ub">
+      <reaction id="R_R_ROXA" name="Rubber Oxygenase RoxA (Exo-cleavage)" reversible="false" fast="false" fbc:lowerFluxBound="cobra_0_bound" fbc:upperFluxBound="cobra_default_ub">
         <listOfReactants>
-          <speciesReference species="M_rubber_fragment_e" stoichiometry="3" constant="true"/>
-          <speciesReference species="M_o2_e" stoichiometry="0.25" constant="true"/>
+          <speciesReference species="M_M_C30_oligo_e" stoichiometry="1" constant="true"/>
+          <speciesReference species="M_o2_e" stoichiometry="1" constant="true"/>
         </listOfReactants>
         <listOfProducts>
-          <speciesReference species="M_odtd_e" stoichiometry="1" constant="true"/>
+          <speciesReference species="M_M_odtd_e" stoichiometry="2" constant="true"/>
         </listOfProducts>
       </reaction>
-      <reaction id="R_ODTDt" name="ODTD transport" reversible="false" fast="false" fbc:lowerFluxBound="cobra_0_bound" fbc:upperFluxBound="cobra_default_ub">
+      <reaction id="R_R_ODTDt" name="ODTD transport" reversible="false" fast="false" fbc:lowerFluxBound="cobra_0_bound" fbc:upperFluxBound="cobra_default_ub">
         <listOfReactants>
-          <speciesReference species="M_odtd_e" stoichiometry="1" constant="true"/>
+          <speciesReference species="M_M_odtd_e" stoichiometry="1" constant="true"/>
         </listOfReactants>
         <listOfProducts>
-          <speciesReference species="M_odtd_c" stoichiometry="1" constant="true"/>
+          <speciesReference species="M_M_odtd_c" stoichiometry="1" constant="true"/>
         </listOfProducts>
       </reaction>
-      <reaction id="R_ODTD_util" name="ODTD utilization to central metabolism" reversible="false" fast="false" fbc:lowerFluxBound="cobra_0_bound" fbc:upperFluxBound="cobra_default_ub">
+      <reaction id="R_R_ODTD_cat" name="ODTD utilization to central metabolism" reversible="false" fast="false" fbc:lowerFluxBound="cobra_0_bound" fbc:upperFluxBound="cobra_default_ub">
         <listOfReactants>
-          <speciesReference species="M_odtd_c" stoichiometry="1" constant="true"/>
-          <speciesReference species="M_atp_c" stoichiometry="1" constant="true"/>
+          <speciesReference species="M_M_odtd_c" stoichiometry="1" constant="true"/>
           <speciesReference species="M_coa_c" stoichiometry="6" constant="true"/>
-          <speciesReference species="M_nad_c" stoichiometry="4" constant="true"/>
+          <speciesReference species="M_h2o_c" stoichiometry="4" constant="true"/>
+          <speciesReference species="M_nad_c" stoichiometry="2" constant="true"/>
+          <speciesReference species="M_fad_c" stoichiometry="2" constant="true"/>
+          <speciesReference species="M_atp_c" stoichiometry="1" constant="true"/>
         </listOfReactants>
         <listOfProducts>
           <speciesReference species="M_accoa_c" stoichiometry="3" constant="true"/>
           <speciesReference species="M_ppcoa_c" stoichiometry="3" constant="true"/>
-          <speciesReference species="M_nadh_c" stoichiometry="4" constant="true"/>
-          <speciesReference species="M_adp_c" stoichiometry="1" constant="true"/>
-          <speciesReference species="M_pi_c" stoichiometry="1" constant="true"/>
+          <speciesReference species="M_nadh_c" stoichiometry="2" constant="true"/>
+          <speciesReference species="M_fadh2_c" stoichiometry="2" constant="true"/>
+          <speciesReference species="M_h_c" stoichiometry="2" constant="true"/>
+          <speciesReference species="M_amp_c" stoichiometry="1" constant="true"/>
+          <speciesReference species="M_ppi_c" stoichiometry="1" constant="true"/>
         </listOfProducts>
+      </reaction>
+      <reaction id="R_R_ROXB" name="Rubber Oxygenase RoxB (Endo-cleavage)" reversible="false" fast="false" fbc:lowerFluxBound="cobra_0_bound" fbc:upperFluxBound="cobra_default_ub">
+        <listOfReactants>
+          <speciesReference species="M_M_rubber_bulk_e" stoichiometry="6" constant="true"/>
+          <speciesReference species="M_o2_e" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <listOfProducts>
+          <speciesReference species="M_M_C30_oligo_e" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+      </reaction>
+      <reaction id="R_R_C30t" reversible="false" fast="false" fbc:lowerFluxBound="cobra_0_bound" fbc:upperFluxBound="cobra_0_bound">
+        <listOfReactants>
+          <speciesReference species="M_M_C30_oligo_e" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <listOfProducts>
+          <speciesReference species="M_M_C30_oligo_c" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+      </reaction>
+      <reaction id="R_R_C30_cat" reversible="false" fast="false" fbc:lowerFluxBound="cobra_0_bound" fbc:upperFluxBound="cobra_default_ub">
+        <listOfReactants>
+          <speciesReference species="M_M_C30_oligo_c" stoichiometry="1" constant="true"/>
+          <speciesReference species="M_coa_c" stoichiometry="12" constant="true"/>
+          <speciesReference species="M_h2o_c" stoichiometry="10" constant="true"/>
+          <speciesReference species="M_nad_c" stoichiometry="5" constant="true"/>
+          <speciesReference species="M_fad_c" stoichiometry="5" constant="true"/>
+          <speciesReference species="M_atp_c" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <listOfProducts>
+          <speciesReference species="M_accoa_c" stoichiometry="6" constant="true"/>
+          <speciesReference species="M_ppcoa_c" stoichiometry="6" constant="true"/>
+          <speciesReference species="M_nadh_c" stoichiometry="5" constant="true"/>
+          <speciesReference species="M_fadh2_c" stoichiometry="5" constant="true"/>
+          <speciesReference species="M_h_c" stoichiometry="5" constant="true"/>
+          <speciesReference species="M_amp_c" stoichiometry="1" constant="true"/>
+          <speciesReference species="M_ppi_c" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+      </reaction>
+      <reaction id="R_EX_rubber_bulk_e" reversible="true" fast="false" fbc:lowerFluxBound="cobra_default_lb" fbc:upperFluxBound="cobra_default_ub">
+        <listOfReactants>
+          <speciesReference species="M_M_rubber_bulk_e" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+      </reaction>
+      <reaction id="R_EX_C30_oligo_e" reversible="true" fast="false" fbc:lowerFluxBound="cobra_default_lb" fbc:upperFluxBound="cobra_default_ub">
+        <listOfReactants>
+          <speciesReference species="M_M_C30_oligo_e" stoichiometry="1" constant="true"/>
+        </listOfReactants>
       </reaction>
     </listOfReactions>
     <fbc:listOfObjectives fbc:activeObjective="obj">
