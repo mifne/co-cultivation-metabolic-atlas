@@ -178,26 +178,23 @@ def get_initial_params(models: dict) -> Tuple[dict, dict]:
     }
     
     initial_metabolites = {
-        'glc__D_e': 0.5, 'nh4_e': 50.0, 'pi_e': 50.0, 'o2_e': 0.25, 
+        'glc__D_e': 0.1, 'nh4_e': 50.0, 'pi_e': 50.0, 'o2_e': 0.25,
         'so4_e': 2.0, 'mg2_e': 2.0, 'ca2_e': 0.1, 'k_e': 10.0, 'cl_e': 10.0,
         'fe3_e': 0.1, 'fe2_e': 0.1, 'h_e': 0.0001, 'h2o_e': 55000.0, 'co2_e': 1.0,
-        'zn2_e': 0.01, 'mn2_e': 0.1, 'cu2_e': 0.01, 'cobalt2_e': 0.01, 
+        'zn2_e': 0.01, 'mn2_e': 0.1, 'cu2_e': 0.01, 'cobalt2_e': 0.01,
         'ni2_e': 0.01, 'mobd_e': 0.01,
         # --- 必須ビタミン・補酵素 (LP要求分) ---
-        'nac_e': 0.1, 'ribflv_e': 0.1, 'pnto__R_e': 0.1, 'thm_e': 0.1, 
+        'nac_e': 0.1, 'ribflv_e': 0.1, 'pnto__R_e': 0.1, 'thm_e': 0.1,
         'btn_e': 0.1, '4abz_e': 0.1, 'fol_e': 0.1, 'nicnt_e': 0.1,
         'ade_e': 0.1, 'gua_e': 0.1, 'ura_e': 0.1, 'xan_e': 0.1, 'orot_e': 0.1,
         'ins_e': 0.1, 'thymd_e': 0.1,
-        # --- 必須アミノ酸 (LP供給用) ---
-        'ala__L_e': 1.0, 'arg__L_e': 1.0, 'asn__L_e': 1.0, 'asp__L_e': 1.0, 
-        'cys__L_e': 1.0, 'gln__L_e': 1.0, 'glu__L_e': 1.0, 'gly_e': 1.0, 
-        'his__L_e': 1.0, 'ile__L_e': 1.0, 'leu__L_e': 1.0, 'lys__L_e': 1.0, 
-        'met__L_e': 1.0, 'phe__L_e': 1.0, 'pro__L_e': 1.0, 'ser__L_e': 1.0, 
-        'thr__L_e': 1.0, 'trp__L_e': 1.0, 'tyr__L_e': 1.0, 'val__L_e': 1.0,
+        # --- 実用化修正: 個別アミノ酸を廃止し、酵母エキスに集約 ---
+        'yeast_extract_e': 1.0,
+
         # --- バイオサーファクタント代替 (2-methylbutanoic acid) ---
         '2mba_e': 0.0,
         # --- ゴム中間体 ---
-        'rubber_fragment_e': 0.0, 'odtd_e': 0.0,
+        'C30_oligo_e': 0.0, 'odtd_e': 0.0,
         # --- 種特異的栄養素の初期値 ---
         'mlttr_e': 0.0, 'ptrc_e': 0.0, 'mnl_e': 0.0
     }

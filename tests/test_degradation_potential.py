@@ -27,8 +27,7 @@ def test_rubber_degradation_and_pha_accumulation():
             clean_metabolites[met] = 1000.0
 
     # 初期状態のnh4_eを制限して窒素枯渇(Nitrogen Limitation)を促す
-    clean_metabolites['nh4_e'] = 10.0 # 少量だけ与える
-
+    clean_metabolites['nh4_e'] = 1.0 # 少量だけ与える (以前は10.0で枯渇しなかった)
     initial_rubber = 100.0
     # max_uptake_rateを大きくして酸素制限をなくす
     sim = dFBASimulator(        models=models,
