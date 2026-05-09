@@ -13,12 +13,18 @@ class ConsortiumCallback(BaseCallback):
         """訓練開始時に総ステップ数を取得し、環境に設定"""
         self.total_timesteps = self.locals.get('total_timesteps', 100000)
         if hasattr(self.training_env, 'env_method'):
-            self.training_env.env_method('set_total_timesteps', self.total_timesteps)
+            try:
+                self.training_env.env_method('set_total_timesteps', self.total_timesteps)
+            except Exception:
+                pass
 
     def _on_step(self) -> bool:
         # 環境の進捗を更新
         if hasattr(self.training_env, 'env_method'):
-            self.training_env.env_method('set_current_total_steps', self.num_timesteps)
+            try:
+                self.training_env.env_method('set_current_total_steps', self.num_timesteps)
+            except Exception:
+                pass
 
         # カリキュラム段階の可視化
         progress = self.num_timesteps / max(1, self.total_timesteps)
@@ -47,5 +53,13 @@ class ConsortiumCallback(BaseCallback):
                 self.logger.record("Science/Biomass_NS21", info["biomass_ns21"])
             if "biomass_lp" in info:
                 self.logger.record("Science/Biomass_LP", info["biomass_lp"])
+            if "r_deg" in info:
+                self.logger.record("Reward/r_deg", info["r_deg"])
+            if "r_surv" in info:
+                self.logger.record("Reward/r_surv", info["r_surv"])
+            if "r_pha" in info:
+                self.logger.record("Reward/r_pha", info["r_pha"])
+            if "r_cost" in info:
+                self.logger.record("Reward/r_cost", info["r_cost"])
                 
         return True

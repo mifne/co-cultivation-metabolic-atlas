@@ -167,7 +167,8 @@ class ConsortiumPPOAgent:
         self.model.learn(
             total_timesteps=total_timesteps,
             callback=callbacks,
-            log_interval=log_interval
+            log_interval=log_interval,
+            reset_num_timesteps=False
         )
         
         # 訓練履歴を可視化

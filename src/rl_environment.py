@@ -45,9 +45,12 @@ class ConsortiumEnv(gym.Env):
         self.current_total_steps = steps
 
     def _setup_spaces(self):
-        # 1-3. qPCR Biomass, 4. pH, 5. DO, 6. Glc, 7. Rubber Frags, 8. PHA, 9. Biosurfactant, 10-12. AA, 13. Time, 14. Phase
+        num_species = len(self.simulator.models)
+        # Biomass(num_species) + pH(1) + DO(1) + Glc(1) + RubberFrags(1) + PHA(1) + BS(1) + AA(3) + Time(1) + Phase(1)
+        # 14 if num_species=3
+        total_obs_dim = num_species + 11
         self.observation_space = spaces.Box(
-            low=0.0, high=1.0, shape=(14,), dtype=np.float32
+            low=0.0, high=1.0, shape=(total_obs_dim,), dtype=np.float32
         )
         self.action_space = spaces.Box(
             low=0.0, high=1.0, shape=(5,), dtype=np.float32
@@ -68,24 +71,26 @@ class ConsortiumEnv(gym.Env):
         obs.append(np.clip(state.metabolites.get('o2_e', 0.25) / 0.25, 0.0, 1.0))
         
         # Metabolites (Log scale normalization): 0-100 mM -> 0-1.0
-        def norm_met(val, K=100.0): return np.log1p(max(0, val)) / np.log1p(K)
+        # --- 科学的修正: クリップを明示し、K値を想定最大値に設定 ---
+        def norm_met(val, K=100.0): 
+            return np.clip(np.log1p(max(0, val)) / np.log1p(K), 0.0, 1.0)
         
-        obs.append(norm_met(state.metabolites.get('glc__D_e', 0.0)))
-        obs.append(norm_met(state.metabolites.get('rubber_fragment_e', 0.0)))
+        obs.append(norm_met(state.metabolites.get('glc__D_e', 0.0), K=100.0))
+        obs.append(norm_met(state.metabolites.get('rubber_fragment_e', 0.0), K=100.0))
         
-        # PHA: 0-1000 mmol -> 0-1.0
+        # PHA: 0-5000 mmol -> 0-1.0 (想定レンジの拡大)
         total_pha = sum(s.pha_accumulated for s in state.species.values())
-        obs.append(norm_met(total_pha))
+        obs.append(norm_met(total_pha, K=5000.0))
         
-        # Biosurfactant: 0-10 mM -> 0-1.0 (分子量が大きいためKを10に設定)
-        obs.append(norm_met(state.metabolites.get('biosurfactant_e', 0.0), K=10.0))
+        # Biosurfactant: 0-50 mM -> 0-1.0
+        obs.append(norm_met(state.metabolites.get('biosurfactant_e', 0.0), K=50.0))
         
-        obs.append(norm_met(state.metabolites.get('arg__L_e', 0.0)))
-        obs.append(norm_met(state.metabolites.get('trp__L_e', 0.0)))
-        obs.append(norm_met(state.metabolites.get('leu__L_e', 0.0)))
+        obs.append(norm_met(state.metabolites.get('arg__L_e', 0.0), K=100.0))
+        obs.append(norm_met(state.metabolites.get('trp__L_e', 0.0), K=100.0))
+        obs.append(norm_met(state.metabolites.get('leu__L_e', 0.0), K=100.0))
         
         # Time and Phase
-        obs.append(state.time / self.max_time)
+        obs.append(np.clip(state.time / self.max_time, 0.0, 1.0))
         phase = 0.0 if state.time < 48.0 else 1.0
         obs.append(phase)
         return np.array(obs, dtype=np.float32)
@@ -133,11 +138,11 @@ class ConsortiumEnv(gym.Env):
         
         # フェーズに応じた共通栄養源の供給制限
         if current_time < 48.0:
-            max_feed_common = 1.0
+            max_feed_common = 0.5 # 1.0 -> 0.5 (現実的な初期ブースト)
         else:
-            max_feed_common = 0.1
+            max_feed_common = 0.05 # 0.1 -> 0.05
             
-        max_feed_specific = 10.0
+        max_feed_specific = 0.1 # 10.0 -> 0.1 (毎ステップ最大0.1 mM追加。1時間あたり0.5 mM相当)
         nutrient_supplementation = {
             'sn_or16': action[0] * max_feed_specific,
             'sn_ns21': action[1] * max_feed_specific,
@@ -188,10 +193,11 @@ class ConsortiumEnv(gym.Env):
 
         # 2. 生産報酬 (Stage 3, 4, 5)
         if progress > 0.3:
-            # --- 収穫期フェーズ: 生産報酬を極限まで強化 ---
-            rubber_w = 1.0 if progress < 0.5 else 500.0 # 50 -> 500
-            pha_w = 0.1 if progress < 0.5 else 50.0    # 5 -> 50
-            bs_w = 5.0 if progress < 0.5 else 200.0    # 100 -> 200
+            # --- 収穫期フェーズ: 生産報酬を滑らかに強化 ---
+            # progress 0.3 -> 0.8 で線形補間し、急激な報酬変化によるTD誤差の増大を抑制
+            rubber_w = float(np.interp(progress, [0.3, 0.8], [1.0, 500.0]))
+            pha_w = float(np.interp(progress, [0.3, 0.8], [0.1, 50.0]))
+            bs_w = float(np.interp(progress, [0.3, 0.8], [5.0, 200.0]))
 
             delta_deg = max(0, self.prev_rubber - state.rubber_concentration)
             reward += delta_deg * rubber_w
@@ -202,8 +208,21 @@ class ConsortiumEnv(gym.Env):
             delta_bs = max(0, current_bs - self.last_bs)
             reward += delta_bs * bs_w
 
-        # 4. 成長ボーナス (収穫期は廃止し、生産へ投資させる)
-        # delta_biomass報酬を廃止 (0.0)
+        # 4. リソース投入コストとCCR回避の誘導
+        c_specific = 0.05
+        c_common = 0.1
+        c_kla = 0.005
+        cost = (
+            c_specific * (action[0] + action[1] + action[2]) +
+            c_common * action[3] +
+            c_kla * action[4]
+        )
+        reward -= cost
+        
+        # CCRの明示的なペナルティ (グルコースが蓄積しているとマイナス)
+        glc_conc = state.metabolites.get('glc__D_e', 0.0)
+        if glc_conc > 0.1:
+            reward -= 0.1 * glc_conc # グルコース蓄積ペナルティ
 
         # 履歴の更新
         self.last_total_pha = current_total_pha

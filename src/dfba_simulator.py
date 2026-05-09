@@ -108,20 +108,24 @@ class dFBASimulator:
             for rxn in model.exchanges:
                 if len(rxn.metabolites) == 1:
                     met = list(rxn.metabolites.keys())[0]
-                    # M_ プレフィックスを除去した ID をキーにする
-                    clean_id = met.id[2:] if met.id.startswith('M_') else met.id
-                    exchange_map[species_name][clean_id] = rxn.id
+                    # --- 科学的修正: 多重プレフィックス (M_M_...) の再帰的除去 ---
+                    met_id = met.id
+                    while met_id.startswith('M_'):
+                        met_id = met_id[2:]
+                    exchange_map[species_name][met_id] = rxn.id
             
             # --- 特殊反応の明示的マッピング (名前が不規則な場合) ---
             # PHA 蓄積 (Sink 反応)
-            for pha_id in ['EX_pha_c', 'EX_phb_c', 'R_EX_pha_c']:
+            for pha_id in ['EX_pha_c', 'EX_phb_c', 'R_EX_pha_c', 'EX_phb_lp']:
                 if pha_id in model.reactions:
                     exchange_map[species_name]['pha_c'] = pha_id
             
-            # ゴム取り込み (Exchange 反応)
-            for rubber_id in ['EX_rubber_e', 'R_EX_rubber_e', 'rubber_high_e']:
-                if rubber_id in model.reactions:
-                    exchange_map[species_name]['rubber_e'] = rubber_id
+            # ゴム分解（ポリマー切断）の明示的マッピング
+            # OR16/NS21共に 'EX_rubber_bulk_e' (C5単位) をゴム減少のトリガーとする
+            for rid in ['EX_rubber_bulk_e', 'R_EX_rubber_bulk_e']:
+                if rid in model.reactions:
+                    exchange_map[species_name]['rubber_e'] = rid
+                    break
 
             # 栄養供給用エイリアス
             if 'Actinoplanes' in species_name and 'EX_mlttr_e' in exchange_map[species_name].values():
@@ -167,7 +171,7 @@ class dFBASimulator:
             # --- 効率化: ソルバー設定をここで一度だけ行う ---
             try:
                 model.solver.configuration.timeout = 10 
-                model.solver.configuration.presolve = True
+                model.solver.configuration.presolve = False # 科学的修正: 内部エラー回避のためFalseに固定
             except: pass
 
     def _diagnose_infeasibility(self, species_name: str, model: cobra.Model):
@@ -184,7 +188,17 @@ class dFBASimulator:
                     print(f"      ❌ Still infeasible (status: {solution.status}) -> Problem: Model structure")
             except: pass
     
-    def set_uptake_constraints(self, species_name: str, metabolite_concentrations: Dict[str, float]):
+    # --- 実用化修正: 酵母エキス(YE)に含まれる微量必須成分の定義 ---
+    # SBMLモデルが要求する、自力合成不全な微量要素をYEが補給すると定義
+    YE_COMPONENTS = [
+        '23camp_e', '23ccmp_e', '23cgmp_e', '3amp_e', '3cmp_e', 'nmn_e', 'thm_e', # 核酸・補酵素
+        'pheme_e', 'sheme_e', 'fe3dcit_e', 'fe3dcit_e', 'fe3_e', # ヘム・鉄錯体
+        'alatrp_e', 'hishis_e', 'LalaDgluMdapDala_e', 'prohisglu_e', 'serglugly_e', 'arg__L_e', # ペプチド・アミノ酸
+        'gthrd_e', 'g3ps_e', 'malthp_e', 'phdca_e', # その他
+        'no3_e', 'no2_e' # 窒素代謝補助
+    ]
+
+    def set_uptake_constraints(self, species_name: str, metabolite_concentrations: Dict[str, float], dynamic_kla: float = 50.0):
         model = self.models[species_name]
         max_uptake = self.max_uptake_rate
         
@@ -193,14 +207,27 @@ class dFBASimulator:
             # ゴムと特殊な Sink 反応はリセット対象から除外
             if 'rubber_e' in rxn.id or 'pha_c' in rxn.id or 'phb_c' in rxn.id:
                 continue
-            # lower_bound を 0 にしたいが、upper_bound が負の場合は lb <= ub を維持するためそれに合 わせる
-            rxn.lower_bound = min(0.0, rxn.upper_bound)
+            # lower_bound を 0 にしたいが、upper_bound が負の場合は lb <= ub を維持するためそれに合わせる
+            # --- 数値的マージン確保 ---
+            rxn.lower_bound = min(0.0, rxn.upper_bound - 1e-7)
+
+        # --- 科学的修正: 酵母エキス(YE)パッケージの概念を導入 ---
+        # YEが存在する場合、モデルが要求する微量必須成分の取り込みを自動的に解放する
+        ye_conc = metabolite_concentrations.get('yeast_extract_e', 0.0)
+        if ye_conc > 0.001:
+            for met_id in self.YE_COMPONENTS:
+                if met_id in self.exchange_reactions[species_name]:
+                    rxn_id = self.exchange_reactions[species_name][met_id]
+                    target_rxn = model.reactions.get_by_id(rxn_id)
+                    # 微量(1.0 mmol/gDW/h)だけ許可。数値的マージンを確保。
+                    target_rxn.lower_bound = min(-1.0, target_rxn.upper_bound - 1e-7)
 
         # 2. H2O と H+ は常に供給可能とする（水系溶媒のため）
         for h_id in ['h2o_e', 'h_e']:
             if h_id in self.exchange_reactions[species_name]:
                 rxn_id = self.exchange_reactions[species_name][h_id]
-                model.reactions.get_by_id(rxn_id).lower_bound = -1000.0
+                bound = -1000.0 if h_id == 'h2o_e' else -10.0 # H+は無限に取り込むと自由エネルギーサイクルを生むため制限
+                model.reactions.get_by_id(rxn_id).lower_bound = bound
 
         # 3. 培地に存在する代謝物の取り込み制約を設定
         for met_id, concentration in metabolite_concentrations.items():
@@ -215,14 +242,39 @@ class dFBASimulator:
 
                     # ミカエリス・メンテン型の速度制限
                     Km = 0.01 if met_id in ['glc__D_e', 'o2_e', 'pi_e', 'nh4_e'] else 0.1
-                    uptake_limit = max_uptake * concentration / (Km + concentration)
+                    v_max_kinetics = max_uptake * concentration / (Km + concentration)
 
-                    # 培地濃度が極めて低い場合は完全に遮断
-                    if concentration < 1e-9: uptake_limit = 0.0
+                    # --- 物理的質量限界によるハードリミット (Ghost Metabolism 回避) ---
+                    # 消費可能な最大フラックス (mmol/gDW/h) = 濃度(mM) * 体積(L) / (バイオマス(gDW) * dt(h))
+                    current_biomass = max(1e-6, self.state.species[species_name].biomass)
+                    
+                    if met_id == 'o2_e':
+                        # --- 科学的修正: エージェントの決定した dynamic_kla に基づく物理上限 ---
+                        # kLa供給能力 (mmol/L/h) = kLa * (O2_sat - O2_current)
+                        o2_sat = 0.25
+                        # 酸素濃度が低いほど供給速度（フラックス上限）は上がる
+                        o2_supply_capacity = max(1.0, dynamic_kla * (o2_sat - min(o2_sat, concentration)))
+                        max_physical_flux = o2_supply_capacity / current_biomass
+                    elif met_id in ['rubber_fragment_e', 'odtd_e', 'C30_oligo_e', 'rubber_bulk_e']:
+                        # 中間代謝物およびバルクゴムユニットについては、
+                        # 相互作用の連鎖（C30アーキテクチャ）を維持するため、緩和
+                        max_physical_flux = 1000.0
+                    else:
+                        # 一般代謝物の質量上限 (mmol/gDW/h)
+                        # 注意: concentration(mM) / (biomass(g/L) * dt(h))
+                        max_physical_flux = concentration / (current_biomass * self.dt)
+
+                    # 速度論的な制限と、物理的な質量限界の小さい方を採用
+                    uptake_limit = min(v_max_kinetics, max_physical_flux)
 
                     # 負の値として設定 (吸収)
                     combined_lb = max(-uptake_limit, orig_lb)
-                    rxn.lower_bound = min(0.0, combined_lb)
+                    
+                    # --- 科学的修正: 数値的安定性のガードレール ---
+                    # GLPKの 'Assertion failed: l[k] != u[k]' を回避するため、
+                    # lower_bound が upper_bound に接近しすぎないようにマージンを確保
+                    safe_lb = min(combined_lb, rxn.upper_bound - 1e-7)
+                    rxn.lower_bound = min(0.0, safe_lb)
                 except: continue
 
         # 4. 【科学的整合性】ゴム分解・発現抑制の特殊ロジック
@@ -377,12 +429,8 @@ class dFBASimulator:
                 
                 if met_id == 'h_e':
                     net_h_flux_mmol += delta
-                elif met_id == 'nh4_e' and flux > 0:
-                    # アンモニア放出による中和効果 (NH3 + H+ -> NH4+)
-                    net_h_flux_mmol -= delta
-                elif met_id == '2mba_e' and flux > 0:
-                    # 有機酸（バイオサーファクタント代替）の放出による酸性化
-                    net_h_flux_mmol += delta
+                    if self.state.time < 5.0 and abs(delta) > 0.1:
+                        print(f"Time {self.state.time}: {species_name} h_e flux={flux:.2f} delta={delta:.2f}")
                 if met_id != 'h_e':
                     total_delta_metabolites[met_id] = total_delta_metabolites.get(met_id, 0.0) + delta
                 
@@ -391,9 +439,10 @@ class dFBASimulator:
                 elif flux > 1e-9: self.state.species[species_name].metabolite_secretion[met_id] = flux
             
             # --- 科学的修正: PHA蓄積量の更新 ---
-            # 内部反応 'EX_pha_c' または 'EX_phb_c' のフラックスを累積
-            for pha_id in ['EX_pha_c', 'EX_phb_c']:
-                pha_flux = fluxes.get(pha_id, 0.0)
+            # 動的にマッピングされた 'pha_c' のフラックスを累積
+            pha_rxn_id = self.exchange_reactions[species_name].get('pha_c')
+            if pha_rxn_id:
+                pha_flux = fluxes.get(pha_rxn_id, 0.0)
                 if pha_flux > 0: # 蓄積
                     self.state.species[species_name].pha_accumulated += pha_flux * biomass * self.dt
         for met_id, delta in total_delta_metabolites.items():
@@ -403,6 +452,9 @@ class dFBASimulator:
                 self.state.metabolites[met_id] = delta
 
         # --- 科学的 pH 更新 (Henderson-Hasselbalch) ---
+        if abs(net_h_flux_mmol) > 1.0 and self.state.time < 5.0:
+            print(f"Time {self.state.time}: Huge net_h_flux_mmol: {net_h_flux_mmol}")
+        
         self.buffer_base -= net_h_flux_mmol
         self.buffer_acid += net_h_flux_mmol
         self.buffer_base = np.clip(self.buffer_base, 0.001, self.buffer_total - 0.001)
@@ -511,34 +563,49 @@ class dFBASimulator:
             for met_id, coeff in ye_composition.items():
                 self.state.metabolites[met_id] = self.state.metabolites.get(met_id, 0.0) + ye_amount * coeff
 
-        # 各種の代謝計算
+            # 各種の代謝計算
         total_co2_flux = 0.0
         species_solutions = {}
         
         for species_name in self.models.keys():
-            self.set_uptake_constraints(species_name, self.state.metabolites)
+            self.set_uptake_constraints(species_name, self.state.metabolites, dynamic_kla)
             
-            # --- 科学的修正: PHA Spillover Metabolism (窒素枯渇時のOverflow) ---
+            # --- 科学的修正: 目的関数の動的切り替え ---
             model = self.models[species_name]
+            pha_rxn_id = self.exchange_reactions[species_name].get('pha_c')
+
             if 'NS21' in species_name:
                 env_nh4 = self.state.metabolites.get('nh4_e', 0.0)
-                if env_nh4 < 0.1:  # 窒素枯渇
-                    # 目的関数をPHA生成に変更
-                    if 'EX_pha_c' in model.reactions:
-                        model.objective = 'EX_pha_c'
-                    elif 'EX_phb_c' in model.reactions:
-                        model.objective = 'EX_phb_c'
+                if env_nh4 < 0.1 and pha_rxn_id:  # 窒素枯渇
+                    # 目的関数をPHA生成に変更 (動的に取得したIDを使用)
+                    model.objective = pha_rxn_id
                 else:
                     # 成長に戻す
-                    if 'Growth' in model.reactions:
-                        model.objective = 'Growth'
+                    if 'R_Growth' in model.reactions: model.objective = 'R_Growth'
+                    elif 'Growth' in model.reactions: model.objective = 'Growth'
+            
+            elif 'OR16' in species_name:
+                # OR16はゴム分解(LCP)が本業であるため、増殖が0の場合でもLCPを回すように誘導
+                if 'R_Growth' in model.reactions: model.objective = 'R_Growth'
+                elif 'Growth' in model.reactions: model.objective = 'Growth'
 
             solution = self.solve_fba(species_name)
             
+            # OR16のフォールバック: 増殖できないならLCPを優先
+            if 'OR16' in species_name and (solution is None or solution.objective_value < 1e-6):
+                if 'R_LCP' in model.reactions:
+                    model.objective = 'R_LCP'
+                    solution = self.solve_fba(species_name)
+
             if solution is not None:
-                # 目的関数が切り替わっていても、実際のバイオマス増殖フラックスを正しく取得する
-                if 'Growth' in solution.fluxes:
+                # --- 科学的修正: 目的関数に関わらず真の増殖フラックスを取得 ---
+                # Fallback sequence: R_Growth -> Growth -> R_BIOMASS_LLA -> BIOMASS_LLA -> objective_value
+                if 'R_Growth' in solution.fluxes:
+                    raw_mu = solution.fluxes['R_Growth']
+                elif 'Growth' in solution.fluxes:
                     raw_mu = solution.fluxes['Growth']
+                elif 'R_BIOMASS_LLA' in solution.fluxes:
+                    raw_mu = solution.fluxes['R_BIOMASS_LLA']
                 elif 'BIOMASS_LLA' in solution.fluxes:
                     raw_mu = solution.fluxes['BIOMASS_LLA']
                 else:
