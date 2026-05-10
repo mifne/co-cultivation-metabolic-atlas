@@ -223,8 +223,11 @@ class ConsortiumPPOAgent:
         Args:
             path: モデルファイルパス
         """
-        # モデルの読み込み
-        self.model = PPO.load(path, env=self.env)
+        # 現在のTensorBoardログパスを保持
+        current_tb_log = self.model.tensorboard_log
+        
+        # モデルの読み込み (現在のenvを維持)
+        self.model = PPO.load(path, env=self.env, tensorboard_log=current_tb_log)
         
         # VecNormalizeの統計を読み込み
         path_obj = Path(path)

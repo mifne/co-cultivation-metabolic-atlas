@@ -41,8 +41,14 @@ class ConsortiumCallback(BaseCallback):
             info = infos[0]
             if "rubber_remaining" in info:
                 self.logger.record("Science/Rubber_Remaining", info["rubber_remaining"])
+            if "total_rubber_degraded" in info:
+                self.logger.record("Science/Total_Rubber_Degraded", info["total_rubber_degraded"])
+            if "survival_hours" in info:
+                self.logger.record("Science/Survival_Hours", info["survival_hours"])
             if "ph" in info:
                 self.logger.record("Science/pH", info["ph"])
+            if "do" in info:
+                self.logger.record("Science/DO", info["do"])
             if "total_pha" in info:
                 self.logger.record("Science/Total_PHA", info["total_pha"])
             if "biosurfactant" in info:
