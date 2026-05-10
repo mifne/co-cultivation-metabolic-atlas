@@ -46,9 +46,9 @@ class ConsortiumEnv(gym.Env):
 
     def _setup_spaces(self):
         num_species = len(self.simulator.models)
-        # Biomass(num_species) + pH(1) + DO(1) + Glc(1) + RubberFrags(1) + PHA(1) + BS(1) + AA(3) + Time(1) + Phase(1)
-        # 14 if num_species=3
-        total_obs_dim = num_species + 11
+        # Biomass(num_species) + pH(1) + DO(1) + Glc(1) + Rubber(1) + C30(1) + ODTD(1) + PHA(1) + BS(1) + AA(3) + Time(1) + Phase(1)
+        # 16 if num_species=3
+        total_obs_dim = num_species + 13
         self.observation_space = spaces.Box(
             low=0.0, high=1.0, shape=(total_obs_dim,), dtype=np.float32
         )
@@ -76,7 +76,11 @@ class ConsortiumEnv(gym.Env):
             return np.clip(np.log1p(max(0, val)) / np.log1p(K), 0.0, 1.0)
         
         obs.append(norm_met(state.metabolites.get('glc__D_e', 0.0), K=100.0))
-        obs.append(norm_met(state.metabolites.get('rubber_fragment_e', 0.0), K=100.0))
+        
+        # ゴム関連の直接観測 (ポリマー残量, C30, ODTD)
+        obs.append(np.clip(state.rubber_concentration / 100.0, 0.0, 1.0))
+        obs.append(norm_met(state.metabolites.get('C30_oligo_e', 0.0), K=100.0))
+        obs.append(norm_met(state.metabolites.get('odtd_e', 0.0), K=100.0))
         
         # PHA: 0-5000 mmol -> 0-1.0 (想定レンジの拡大)
         total_pha = sum(s.pha_accumulated for s in state.species.values())
@@ -114,8 +118,8 @@ class ConsortiumEnv(gym.Env):
         self.simulator.state.metabolites['glc__D_e'] = 0.5
         
         # --- 誘導物質 (Inducer) のシード ---
-        # 0.1 mM の分解フラグメントを配置し、分解パスウェイを即座に稼働させる
-        self.simulator.state.metabolites['rubber_fragment_e'] = 0.1
+        # 0.1 mM の C30オリゴマーを配置し、分解パスウェイを即座に稼働させる
+        self.simulator.state.metabolites['C30_oligo_e'] = 0.1
         
         # 初期pHを確実に中性付近にするため、プロトン濃度を調整
         self.simulator.state.metabolites['h_e'] = 10**(-7.21) * 1000.0 
@@ -168,45 +172,35 @@ class ConsortiumEnv(gym.Env):
         # --- カリキュラム学習報酬ロジック ---
         progress = min(1.0, self.current_total_steps / max(1, self.total_timesteps))
         reward = 0.0
-        
-        # 1. pH ストライクゾーン (Stage 1 & 2)
+        # 1. pH ストライクゾーン (Stage 1-5)
         h_conc = state.metabolites.get('h_e', 0.0001)
         current_ph = -np.log10(max(1e-12, h_conc) / 1000.0)
-        
-        if progress < 0.1:
-            target_min, target_max = 4.0, 10.0 # Stage 1: 広め
-        else:
-            target_min, target_max = 6.0, 8.0  # Stage 2: 厳格
-            
-        ph_dist = 0.0
-        if current_ph < target_min:
-            ph_dist = target_min - current_ph
-            # 酸性側ペナルティ
-            reward -= min(2.0, ph_dist * (0.5 if progress < 0.1 else 1.0))
-        elif current_ph > target_max:
-            ph_dist = current_ph - target_max
-            # --- 科学的非対称性: アルカリ(アンモニア毒性)側ペナルティを2倍に ---
-            reward -= min(4.0, ph_dist * (1.0 if progress < 0.1 else 2.0))
-            
-        if ph_dist == 0:
+
+        # --- 科学的修正: 二次関数的なペナルティで緩やかな警告と強力なブレーキを両立 ---
+        # 係数を 0.1 -> 0.5 に強化し、中性維持への圧力を高める
+        ph_dist = abs(current_ph - 7.0)
+        reward -= 0.5 * (ph_dist ** 2)
+
+        if ph_dist < 1.0:
             reward += 0.05 * (1.0 - progress) # 維持ボーナス
 
-        # 2. 生産報酬 (Stage 3, 4, 5)
-        if progress > 0.3:
-            # --- 収穫期フェーズ: 生産報酬を滑らかに強化 ---
-            # progress 0.3 -> 0.8 で線形補間し、急激な報酬変化によるTD誤差の増大を抑制
-            rubber_w = float(np.interp(progress, [0.3, 0.8], [1.0, 500.0]))
-            pha_w = float(np.interp(progress, [0.3, 0.8], [0.1, 50.0]))
-            bs_w = float(np.interp(progress, [0.3, 0.8], [5.0, 200.0]))
+        # 2. 生産報酬 (Stage 1-5)
+        # --- 科学的修正: 学習開始直後からゴム分解を強力に奨励 (報酬を3倍に強化) ---
+        rubber_w = float(np.interp(progress, [0.0, 0.8], [30.0, 1500.0]))
+        pha_w = float(np.interp(progress, [0.0, 0.8], [1.0, 50.0]))
+        bs_w = float(np.interp(progress, [0.0, 0.8], [5.0, 200.0]))
 
-            delta_deg = max(0, self.prev_rubber - state.rubber_concentration)
-            reward += delta_deg * rubber_w
+        delta_deg = max(0, self.prev_rubber - state.rubber_concentration)
+        reward += delta_deg * rubber_w
 
-            delta_pha = max(0, current_total_pha - self.last_total_pha)
-            reward += delta_pha * pha_w
+        delta_pha = max(0, current_total_pha - self.last_total_pha)
+        reward += delta_pha * pha_w
 
-            delta_bs = max(0, current_bs - self.last_bs)
-            reward += delta_bs * bs_w
+        delta_bs = max(0, current_bs - self.last_bs)
+        reward += delta_bs * bs_w
+
+        # --- 科学적修正: バイオマス密度ボーナスの追加 (積極的に菌を増やす誘導) ---
+        reward += 0.02 * current_total_biomass
 
         # 4. リソース投入コストとCCR回避の誘導
         c_specific = 0.05
@@ -230,8 +224,9 @@ class ConsortiumEnv(gym.Env):
 
         # --- 科学的微量持続供給 (Inducer Influx) ---
         # OR16の分解スイッチを常にONにするための微量供給 (0.001 mM)
-        self.simulator.state.metabolites['rubber_fragment_e'] = \
-            self.simulator.state.metabolites.get('rubber_fragment_e', 0.0) + 0.001
+        self.simulator.state.metabolites['C30_oligo_e'] = \
+            self.simulator.state.metabolites.get('C30_oligo_e', 0.0) + 0.001
+
 
         # 3. 終了管理と「代謝義務化チェック」
 
@@ -247,7 +242,8 @@ class ConsortiumEnv(gym.Env):
                 self.last_activity_biomass = current_total_biomass
 
         if terminated and state.time < self.max_time:
-            reward -= 5.0 
+            # --- 科学的修正: 絶滅ペナルティを強化 (バイオマスボーナスとのバランス) ---
+            reward -= 10.0 
             
         truncated = state.time >= self.max_time
         self.current_step += 1
@@ -255,7 +251,10 @@ class ConsortiumEnv(gym.Env):
         
         info = {
             'rubber_remaining': state.rubber_concentration,
+            'total_rubber_degraded': self.initial_rubber - state.rubber_concentration,
+            'survival_hours': state.time,
             'ph': current_ph,
+            'do': state.metabolites.get('o2_e', 0.25),
             'total_pha': current_total_pha,
             'biosurfactant': current_bs,
             'biomass_or16': state.species.get('Actinoplanes_sp_OR16_lcp', state.species.get('Engine 1', state.species.get(next(iter(state.species)), None))).biomass,
