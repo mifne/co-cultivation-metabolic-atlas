@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "created_utc": "2026-09-01T03:02:22.156245+00:00",
+  "applied": true,
+  "reason": "Artifacts were generated before activation of the repaired WCFS1 2022 GEM and/or explicitly contained Lactobacillus_plantarum_iNF517. Reaction order, stoichiometry, GPRs, observations, policies, and surrogate targets are incompatible with the current consortium.",
+  "deleted_file_count": 562,
+  "deleted_bytes": 1388286399,
+  "deleted_gib": 1.2929424634203315,
+  "deleted_groups": [
+    "models/fba_surrogate* (six legacy surrogate/training-data directories)",
+    "outputs/ (PPO checkpoints, VecNormalize states, archives, and evaluations)",
+    "results/coexistence_audit_* except coexistence_audit_wcfs1_2022",
+    "results/corrected_feed_screen",
+    "results/flux_nutrition_audit (pre-WCFS1 version)",
+    "results/rl_behavior* and results/rl_eval",
+    "results/rl_problem_feasibility*",
+    "results/three_pump_feed_design",
+    "results files prefixed benchmark_, compare_, exact_fba_, fba_, gpu_, hardware_, parallel_, ppo_, profile_, resource_, rollout_, scale_, or workstation_",
+    "paper_figures/*.csv, *.pdf, and *.png generated from invalid RL runs",
+    "output/pdf/workstation_predicted_behavior.pdf"
+  ],
+  "preserved": [
+    "models/sbml/reference",
+    "models/sbml/final_consortium",
+    "models/gene_registry",
+    "results/coexistence_audit_wcfs1_2022",
+    "results/flux_nutrition_wcfs1_2022",
+    "results/lplantarum_model_replacement*",
+    "results/wcfs1_coexistence_strategy*",
+    "results/program_*",
+    "all source code and raw genome files"
+  ],
+  "recovery": "Deleted generated artifacts are not recoverable from this working tree unless an external backup exists. They can only be replaced by retraining or rerunning benchmarks with the repaired WCFS1 2022 model."
+}

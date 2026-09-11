@@ -1,0 +1,11 @@
+{
+  "production_path": "models/sbml/final_consortium/Lactobacillus_plantarum.xml",
+  "source_reference": "models/sbml/reference/Lactiplantibacillus_plantarum_WCFS1_iBT721.xml",
+  "model_id": "iBT721_WCFS1",
+  "reactions": 778,
+  "metabolites": 662,
+  "genes": 724,
+  "objective_reactions": [
+    "added_biomass_sink"
+  ]
+}

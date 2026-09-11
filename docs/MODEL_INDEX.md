@@ -7,7 +7,7 @@
 | 微生物名 | モデルファイルパス | 由来 (Base) | 役割 | ステータス |
 | :--- | :--- | :--- | :--- | :--- |
 | **Actinoplanes sp. OR16** | `models/sbml/final_consortium/Actinoplanes_sp_OR16_lcp.xml` | CarveMe (AP019371.1) | ゴム分解 (Lcp型) | 検証済み |
-| **Rhizobacter gummiphilus NS21** | `models/sbml/final_consortium/Rhizobacter_gummiphilus_NS21.xml` | CarveMe (GCF_001511185.1) | ゴム分解 (Rox型) & PHA変換 | 検証済み |
+| **Rhizobacter gummiphilus NS21** | `models/sbml/final_consortium/Rhizobacter_gummiphilus_NS21.xml` | CarveMe + manual curation (GCF_002116905.1) | ゴム分解 (Rox型) & PHB/PHBV変換 | 構造検証済み・速度未較正 |
 | **Lactobacillus plantarum** | `models/sbml/final_consortium/Lactobacillus_plantarum.xml` | iNF517 (Validated) | 代謝安定化 (Buffer) | 検証済み |
 
 ---
@@ -22,19 +22,21 @@
     - **反応トポロジー**: 天然ゴム (`rubber_e`) をオリゴマー (`rubber_fragment_e`) へエンド型切断し、同時に資化する経路を構築。
     - **生化学的補正 (OxiAB)**: ゴム切断後のアルデヒドを酸化する OxiAB ホモログ (`ISOP_ALDH`) の電子受容体を、誤った $NAD^+$ から**科学的に正しいシトクロムc (`ficytc_c`) へ修正**。これにより呼吸鎖と連動し、致死的なレドックスアンバランス（過剰還元の蓄積）を解消。
     - **質量・電子バランス補正**: ベータ酸化を一括で表現する `ISOP_ACS` 反応において、CoAの消費不足による質量保存の違反（FBAによるペナルティ）を修正し、$7 NADH$ / $7 FADH_2$ の生成を厳密に定義。
-    - **境界条件の開放**: `EX_rubber_e` の LowerBound を -1000 に設定し、シミュレーター側での動的制御を可能にした。
+    - **境界条件の開放**: `EX_rubber_bulk_e` の LowerBound を -1000 に設定し、シミュレーター側での動的制御を可能にした。
     - **ギャップフィリング**: M9培地での増殖を可能にするため、必須アミノ酸合成経路を補完。
 - **検証結果:** ゴム単一炭素源での増殖速度 0.0804 を達成。修正により、最大比ゴム取り込み速度 ($q_{rubber\_max}$) は `4.30 g/gDW/h` に到達（ポテンシャルの解放）。
 
 ### 🧬 Rhizobacter gummiphilus NS21
-- **ゲノム:** RefSeq GCF_001511185.1
-- **改修スクリプト:** `scripts/modify_ns21_model.py`
+- **ゲノム:** RefSeq GCF_002116905.1 / GenBank CP015118.1
+- **改修スクリプト:** `scripts/model_ops/curate_ns21_pha_pathway.py`
 - **主要な変更点:**
     - **Rox経路 (LatA1/A2) の実装**: OR16が放出した `rubber_fragment_e` を資化し、精密中間体 `ODTD` へと変換するエキソ型切断を実装。
-    - **PHA合成経路**: アセチルCoAから PHA (PHB) を蓄積する `phaCAB` 経路 (`PHB_syn`) をキュレーション。
-    - **PHA排出パスの導通**: `EX_pha_c` の UpperBound を 1000 に設定し、蓄積フラックスが FBA 計算上流れるように修正。
+    - **PHA合成経路**: 現行PGAP注釈に基づき `A4W93_10485`（現行別名 `A4W93_RS10540`; `phaC`）と `A4W93_10495`（`A4W93_RS10550`; `phbB`）を採用。誤ってPhaCに割り当てられていた `A4W93_02445` を除外した。
+    - **PHBV表現**: 3HBと3HVの前駆体還元、PhaC重合、細胞内蓄積sinkを別反応として実装し、3HVモル分率をdFBAで追跡可能にした。
+    - **PHA分解**: PhaZ候補反応は記載したが、速度未較正のためFBAでは無効化した。
+    - **PHA蓄積パスの導通**: `EX_pha_c` と `EX_phv_c` は分泌ではなく細胞内動的蓄積sinkとして扱う。
     - **代謝トポロジー**: ODTD -> アセチルCoA -> PHA の流路を最適化。
-- **検証結果:** ゴムオリゴマーからの PHA 蓄積を確認 (Max Production 500.0)。
+- **検証結果:** PhaB/PhaC/PhaZ反応の元素・電荷収支、PhaB/PhaCノックアウトによる両枝遮断、旧・現行locus tag対応を自動試験する。絶対生産速度と最大含有率は実験較正前であり、予測値として確定しない。
 
 ### 🧬 Lactobacillus plantarum (iNF517)
 - **由来:** 高品質な既存モデル iNF517 を採用。

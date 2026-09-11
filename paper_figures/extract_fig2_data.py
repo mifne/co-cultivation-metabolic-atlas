@@ -84,8 +84,8 @@ def extract_2a():
 
 def extract_2b():
     print("Extracting 2B (Time-Course)...")
-    model_path = "outputs/refined_models/godmode/godmode_final_refined.zip"
-    vec_path   = "outputs/refined_models/godmode/godmode_final_refined_vecnormalize.pkl"
+    model_path = "outputs/checkpoints/ppo_godmode_v3_550000_steps.zip"
+    vec_path   = "outputs/checkpoints/ppo_godmode_v3_vecnormalize_550000_steps.pkl"
     sbml_dir   = "models/sbml/final_consortium"
 
     if not os.path.exists(model_path):
@@ -145,8 +145,8 @@ def extract_2b():
 
 def extract_2cd():
     print("Extracting 2C/D (Value & Policy Heatmaps)...")
-    model_path = "outputs/refined_models/godmode/godmode_final_refined.zip"
-    vec_path   = "outputs/refined_models/godmode/godmode_final_refined_vecnormalize.pkl"
+    model_path = "outputs/checkpoints/ppo_godmode_v3_550000_steps.zip"
+    vec_path   = "outputs/checkpoints/ppo_godmode_v3_vecnormalize_550000_steps.pkl"
     sbml_dir   = "models/sbml/final_consortium"
 
     if not os.path.exists(model_path):

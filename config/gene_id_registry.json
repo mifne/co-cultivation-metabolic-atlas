@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "canonical_policy": {
+    "model_gene_id": "strain-specific INSDC/NCBI locus_tag",
+    "project_gene_id": "CCG_<organism_key>_<locus_tag>",
+    "legacy_ids": "retained as aliases; never used as cross-species keys"
+  },
+  "organisms": [
+    {
+      "organism_key": "OR16",
+      "species_name": "Actinoplanes sp. OR16",
+      "model_file": "Actinoplanes_sp_OR16_lcp.xml",
+      "assembly_accession": "AP019371.1",
+      "fasta_file": "models/genome/AP019371.1.faa",
+      "locus_tag_pattern": "^ACTI_[0-9]+$",
+      "manual_aliases": {}
+    },
+    {
+      "organism_key": "NS21",
+      "species_name": "Rhizobacter gummiphilus NS21",
+      "model_file": "Rhizobacter_gummiphilus_NS21.xml",
+      "assembly_accession": "CP015118.1",
+      "fasta_file": "models/genome/NS21.faa",
+      "locus_tag_pattern": "^A4W93_[0-9]+$",
+      "manual_aliases": {
+        "A4W93_RS09645": {
+          "canonical_locus_tag": "A4W93_09590",
+          "evidence": "NCBI PGAP 6.10 reannotation for GCF_002116905.1 (2025-12-16); PHA depolymerase candidate."
+        },
+        "A4W93_RS10540": {
+          "canonical_locus_tag": "A4W93_10485",
+          "evidence": "NCBI PGAP 6.10 reannotation for GCF_002116905.1; phaC, class I PHA synthase."
+        },
+        "A4W93_RS10545": {
+          "canonical_locus_tag": "A4W93_10490",
+          "evidence": "NCBI PGAP 6.10 reannotation for GCF_002116905.1; acetyl-CoA C-acetyltransferase (PhaA step)."
+        },
+        "A4W93_RS10550": {
+          "canonical_locus_tag": "A4W93_10495",
+          "evidence": "NCBI PGAP 6.10 reannotation for GCF_002116905.1; phbB/acetoacetyl-CoA reductase."
+        },
+        "A4W93_RS11020": {
+          "canonical_locus_tag": "A4W93_10970",
+          "evidence": "NCBI PGAP 6.10 reannotation for GCF_002116905.1; phaP phasin."
+        },
+        "A4W93_RS15265": {
+          "canonical_locus_tag": "A4W93_15190",
+          "evidence": "NCBI PGAP 6.10 reannotation for GCF_002116905.1; phaR regulator."
+        },
+        "A4W93_RS20105": {
+          "canonical_locus_tag": "A4W93_20030",
+          "evidence": "NCBI PGAP 6.10 reannotation for GCF_002116905.1; extracellular PHA depolymerase, type 2."
+        }
+      }
+    },
+    {
+      "organism_key": "WCFS1",
+      "species_name": "Lactiplantibacillus plantarum WCFS1",
+      "model_file": "Lactobacillus_plantarum.xml",
+      "assembly_accession": "AL935263.2",
+      "fasta_file": null,
+      "locus_tag_pattern": "^(lp_[0-9]+|pWCFS[0-9]+_[0-9]+)$",
+      "manual_aliases": {
+        "GntK": {
+          "canonical_locus_tag": "lp_1250",
+          "evidence": "The iBT721 WCFS1 model assigns GNK to lp_1250; the 2022 rule 'GntK or lp_1250' duplicates a gene symbol and its locus tag."
+        }
+      },
+      "unresolved_ids": {
+        "lp1406": "Not auto-mapped: lp_1406 already exists as a different model gene, while the DAPRPL Boolean rule containing lp1406 is internally redundant. Sequence-level evidence is required before changing it."
+      }
+    }
+  ]
+}

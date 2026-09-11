@@ -88,8 +88,8 @@ def main():
     print("Extracting God-Mode Agent Data...")
     df_god = extract_agent_data(
         'God-Mode', 
-        "outputs/refined_models/godmode/godmode_final_refined.zip", 
-        "outputs/refined_models/godmode/godmode_final_refined_vecnormalize.pkl"
+        "outputs/checkpoints/ppo_godmode_v3_550000_steps.zip", 
+        "outputs/checkpoints/ppo_godmode_v3_vecnormalize_550000_steps.pkl"
     )
     
     # 2. Extract Real-World POMDP data

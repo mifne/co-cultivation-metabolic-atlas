@@ -43,12 +43,12 @@ def make_env():
 
 def extract_best_stochastic_rollout():
     env = DummyVecEnv([make_env])
-    vecnorm_path = "outputs/refined_models/godmode/godmode_final_refined_vecnormalize.pkl"
+    vecnorm_path = "outputs/checkpoints/ppo_godmode_v3_vecnormalize_550000_steps.pkl"
     env = VecNormalize.load(vecnorm_path, env)
     env.training   = False
     env.norm_reward = False
 
-    model_path = "outputs/refined_models/godmode/godmode_final_refined.zip"
+    model_path = "outputs/checkpoints/ppo_godmode_v3_550000_steps.zip"
     model = PPO.load(model_path, env=env)
 
     best_pha = -1

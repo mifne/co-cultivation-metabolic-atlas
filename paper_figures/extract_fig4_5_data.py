@@ -20,6 +20,7 @@ from main import load_sbml_models, select_consortium_models, get_initial_params
 
 def find_best_tensorboard_dir():
     candidates = [
+        "outputs/final_v15_do_monitoring/tensorboard",
         "outputs/tensorboard/PPO_1",
         "outputs/tensorboard/PPO_0",
         "outputs/refined_models/godmode/tensorboard/PPO_0",
@@ -27,6 +28,27 @@ def find_best_tensorboard_dir():
     ]
     best_dir = None
     best_size = 0
+    # Try to find a directory that actually has the Science/ tags first
+    for candidate in candidates:
+        if os.path.isdir(candidate):
+            for root, dirs, files in os.walk(candidate):
+                has_events = any(f.startswith("events.out.tfevents") for f in files)
+                if not has_events:
+                    continue
+                
+                # Check for tags in this directory
+                try:
+                    ea = EventAccumulator(root)
+                    ea.Reload()
+                    tags = ea.Tags().get('scalars', [])
+                    if any('Survival' in t for t in tags) and any('Rubber' in t for t in tags):
+                        # Found it!
+                        print(f"Found TB directory with Science tags: {root}")
+                        return root
+                except:
+                    continue
+
+    # Fallback to largest file if tags not found specifically
     for candidate in candidates:
         if os.path.isdir(candidate):
             for root, dirs, files in os.walk(candidate):
@@ -103,8 +125,8 @@ def extract_fig4_data():
 
 def extract_fig5_data():
     """Product optimization trajectory using God-mode refined model (240h)"""
-    model_path   = "outputs/refined_models/godmode/godmode_final_refined.zip"
-    vecnorm_path = "outputs/refined_models/godmode/godmode_final_refined_vecnormalize.pkl"
+    model_path   = "outputs/checkpoints/ppo_godmode_v3_550000_steps.zip"
+    vecnorm_path = "outputs/checkpoints/ppo_godmode_v3_vecnormalize_550000_steps.pkl"
 
     if not os.path.exists(model_path):
         print(f"Model path {model_path} not found.")

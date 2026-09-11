@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "created_utc": "2026-09-02T15:17:53.933180+00:00",
+  "config": "config/gene_id_registry.json",
+  "canonicalized_models": false,
+  "canonical_policy": {
+    "model_gene_id": "strain-specific INSDC/NCBI locus_tag",
+    "project_gene_id": "CCG_<organism_key>_<locus_tag>",
+    "legacy_ids": "retained as aliases; never used as cross-species keys"
+  },
+  "registry_gene_count": 3902,
+  "alias_count": 17355,
+  "status_counts": {
+    "mapped": 3899,
+    "retired_unresolved": 1,
+    "special": 2
+  },
+  "model_audits": [
+    {
+      "organism_key": "OR16",
+      "genes_before": 1596,
+      "genes_after": 1596,
+      "renamed_aliases": 0,
+      "merged_duplicate_gene_objects": 0,
+      "simplified_gpr_rules": 0,
+      "retired_unresolved_gene_ids": [],
+      "historical_quarantined_gene_ids": [],
+      "unresolved_gene_ids": []
+    },
+    {
+      "organism_key": "NS21",
+      "genes_before": 1392,
+      "genes_after": 1392,
+      "renamed_aliases": 0,
+      "merged_duplicate_gene_objects": 0,
+      "simplified_gpr_rules": 0,
+      "retired_unresolved_gene_ids": [],
+      "historical_quarantined_gene_ids": [],
+      "unresolved_gene_ids": []
+    },
+    {
+      "organism_key": "WCFS1",
+      "genes_before": 913,
+      "genes_after": 913,
+      "renamed_aliases": 0,
+      "merged_duplicate_gene_objects": 0,
+      "simplified_gpr_rules": 0,
+      "retired_unresolved_gene_ids": [],
+      "historical_quarantined_gene_ids": [
+        "lp1406"
+      ],
+      "unresolved_gene_ids": []
+    }
+  ]
+}

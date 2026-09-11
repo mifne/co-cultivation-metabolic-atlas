@@ -23,22 +23,21 @@ df_det = pd.read_csv('paper_figures/fig5_deterministic.csv')
 df_hyb = pd.read_csv('paper_figures/fig5_hybrid.csv')
 
 def plot_panel(ax, df, title):
-    # Plot Rubber Decreasing (Left Axis)
-    l1 = ax.plot(df['Time'], df['Rubber_Remaining'], color='black', linewidth=3, label='Rubber (Polymer)')
+    # Convert to Carbon-mmol (C-mM) for mass balance
+    df['Rubber_CmM'] = df['Rubber_Remaining'] * 73.4
+    df['C30_oligo_CmM'] = df['C30_oligo_e'] * 30.0
+    df['odtd_CmM'] = df['odtd_e'] * 15.0
+    df['Total_PHA_CmM'] = df['Total_PHA'] * 4.0
+
+    # Plot All on Single Axis
+    l1 = ax.plot(df['Time'], df['Rubber_CmM'], color='black', linewidth=3, label='Rubber (Polymer)')
+    l2 = ax.plot(df['Time'], df['C30_oligo_CmM'], color='#ff7f0e', linewidth=2.5, linestyle='--', label='C30 Oligomers')
+    l3 = ax.plot(df['Time'], df['odtd_CmM'], color='#2ca02c', linewidth=2.5, linestyle='-.', label='ODTD')
+    l4 = ax.plot(df['Time'], df['Total_PHA_CmM'], color='#d62728', linewidth=3, label='PHA (Product)')
+
     ax.set_xlabel('Time (Hours)')
-    ax.set_ylabel('Rubber Concentration (g/L)', color='black', fontweight='bold')
-    ax.tick_params(axis='y', labelcolor='black')
-    ax.set_ylim(0, 105)
-
-    # Plot Intermediates and Products (Right Axis)
-    ax2 = ax.twinx()
-    l2 = ax2.plot(df['Time'], df['C30_oligo_e'], color='#ff7f0e', linewidth=2.5, linestyle='--', label='C30 Oligomers')
-    l3 = ax2.plot(df['Time'], df['odtd_e'], color='#2ca02c', linewidth=2.5, linestyle='-.', label='ODTD')
-    l4 = ax2.plot(df['Time'], df['Total_PHA'], color='#d62728', linewidth=3, label='PHA (Product)')
-
-    ax2.set_ylabel('Concentration (mM / mmol)', color='#d62728', fontweight='bold')
-    ax2.tick_params(axis='y', labelcolor='#d62728')
-    ax2.set_ylim(-1, max(30, df['Total_PHA'].max() * 1.2))
+    ax.set_ylabel('Carbon Concentration (C-mM)', fontweight='bold')
+    ax.set_ylim(0, 8000)
 
     lines = l1 + l2 + l3 + l4
     labels = [l.get_label() for l in lines]
@@ -53,7 +52,7 @@ plot_panel(ax_a, df_det, 'A. Learned Policy (Deterministic): Maximizing Degradat
 
 # 5B: Hybrid Run
 ax_b = fig.add_subplot(gs[0, 1])
-plot_panel(ax_b, df_hyb, 'B. Biological Potential (Hybrid): Forced Starvation at t=80h')
+plot_panel(ax_b, df_hyb, 'B. Biological Potential (Hybrid): Forced Starvation at t=336h')
 
 # 5C: Action (YE Feed) Comparison
 ax_c = fig.add_subplot(gs[1, :])
@@ -64,8 +63,8 @@ ax_c.set_ylabel('Nitrogen Feed Action (0-1)')
 # こちらの凡例も外に配置
 ax_c.legend(loc='upper center', bbox_to_anchor=(0.5, -0.2), ncol=2, frameon=True)
 ax_c.set_title('C. Nitrogen Feeding Strategy Comparison', loc='left', fontweight='bold')
-ax_c.axvline(x=80.0, color='gray', linestyle=':', linewidth=2)
-ax_c.text(82, 0.5, 'Starvation Triggered', color='gray', fontsize=14, rotation=90, verticalalignment='center')
+ax_c.axvline(x=336.0, color='gray', linestyle=':', linewidth=2)
+ax_c.text(340, 0.5, 'Starvation Triggered', color='gray', fontsize=14, rotation=90, verticalalignment='center')
 
 plt.tight_layout()
 plt.savefig('paper_figures/Figure_5_Revised.png', bbox_inches='tight')

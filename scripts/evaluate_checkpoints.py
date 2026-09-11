@@ -46,7 +46,7 @@ POMDP_CKPT_DIR   = Path("outputs/checkpoints_pomdp")
 # サンプリング間隔（スクリーニング用）
 SCREENING_INTERVAL = 100_000
 # 詳細評価エピソード数
-DETAIL_N_EPISODES = 5
+DETAIL_N_EPISODES = 1
 # 時系列記録用エピソード数
 TIMESERIES_N_EPISODES = 1
 

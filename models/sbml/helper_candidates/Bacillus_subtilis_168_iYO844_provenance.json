@@ -1,0 +1,33 @@
+{
+  "model": "iYO844",
+  "organism": "Bacillus subtilis subsp. subtilis str. 168",
+  "culture_collection_ids": [
+    "NBRC 111470",
+    "JCM 10629",
+    "DSM 402",
+    "ATCC 23857"
+  ],
+  "download_url": "http://bigg.ucsd.edu/api/v2/models/iYO844/download",
+  "database": "BiGG Models 1.6",
+  "retrieved": "2026-09-02",
+  "source_sha256": "77d071d179ebecfe59fa16db1ef112391070e0b05c8e18421d89ab1c51af9855",
+  "curated_sbml_sha256": "ae33f5d68061960309f1f5c41ba8ac300b6dd7227bbac0463989a9295ed3ca27",
+  "counts": {
+    "reactions": 1250,
+    "metabolites": 990,
+    "genes": 844,
+    "exchanges": 229
+  },
+  "curation": [
+    "EX_starch_e lower bound changed from 0 to -10 mmol gDW-1 h-1",
+    "No reaction or gene was added",
+    "AAMYL_1 is retained with GPR BSU03040",
+    "No named PHA/PHB biosynthetic reaction was detected"
+  ],
+  "model_reference": "https://doi.org/10.1074/jbc.M703759200",
+  "co_culture_reference": "https://doi.org/10.1016/j.biortech.2018.02.056",
+  "limitations": [
+    "iYO844 represents strain 168, not the exact Bacillus strain used in every PHA co-culture study",
+    "FBA secretion is a feasible cooperative phenotype, not proof of secretion in an unengineered culture"
+  ]
+}

@@ -20,7 +20,10 @@ class TestDegradationNameMatching(unittest.TestCase):
         sim = dFBASimulator(
             models=models,
             initial_biomass={'Actinoplanes_sp_OR16_lcp': 1.0, 'Rhizobacter_gummiphilus_NS21': 1.0},
-            initial_metabolites={},
+            # Extracellular Lcp/Rox cleavage is oxygen-coupled. Name matching
+            # cannot be tested in an anoxic state because zero degradation is
+            # then the physically correct result.
+            initial_metabolites={'o2_e': 1.0},
             initial_rubber=100.0,
             dt=1.0
         )

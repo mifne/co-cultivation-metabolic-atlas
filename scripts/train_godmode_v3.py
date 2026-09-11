@@ -9,9 +9,11 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from main import load_sbml_models, select_consortium_models, get_initial_params, ConsortiumCallback
 from src.dfba_simulator import dFBASimulator
 from src.rl_environment import ConsortiumEnv
+from src.gpu_assignment import assign_gpu_for_worker
 
 def make_env(rank, seed=0):
     def _init():
+        assign_gpu_for_worker(rank)
         sbml_dir = "models/sbml/final_consortium"
         all_models = load_sbml_models(Path(sbml_dir))
         models = select_consortium_models(all_models)
@@ -52,7 +54,7 @@ def main():
         policy_kwargs=policy_kwargs,
         tensorboard_log="outputs/tensorboard/",
         verbose=1,
-        device="cpu"
+        device=os.environ.get("PPO_DEVICE", "cpu")
     )
 
     checkpoint_callback = CheckpointCallback(
@@ -63,19 +65,21 @@ def main():
     )
     
     # --- 堅牢化修正: 最新のチェックポイントから再開 ---
-    latest_checkpoint = "outputs/checkpoints/ppo_godmode_v3_280000_steps.zip"
-    if os.path.exists(latest_checkpoint):
+    checkpoint_dir = Path("outputs/checkpoints")
+    checkpoints = sorted(list(checkpoint_dir.glob("ppo_godmode_v3_*_steps.zip")), key=lambda x: int(x.stem.split('_')[-2])) if checkpoint_dir.exists() else []
+    
+    if checkpoints:
+        latest_checkpoint = checkpoints[-1]
         print(f"🔄 Resuming God-Mode training from {latest_checkpoint}")
         model = PPO.load(latest_checkpoint, env=env, tensorboard_log="outputs/tensorboard/")
-        # VecNormalizeの統計情報も復元
-        stats_path = "outputs/checkpoints/ppo_godmode_v3_vecnormalize_280000_steps.pkl"
+        stats_path = checkpoint_dir / latest_checkpoint.name.replace("ppo_godmode_v3", "ppo_godmode_v3_vecnormalize").replace(".zip", ".pkl")
 
-        if os.path.exists(stats_path):
-            env = VecNormalize.load(stats_path, env.venv)
+        if stats_path.exists():
+            env = VecNormalize.load(str(stats_path), env.venv)
             model.set_env(env)
     
-    print("Starting Parallel Training of God-Mode Agent (Reward v3.0) on 8 cores...")
-    model.learn(total_timesteps=1000000, callback=[checkpoint_callback], reset_num_timesteps=False)
+    print("Starting Parallel Training of God-Mode Agent (Reward v3.1: PHA-Incentivized) on 8 cores...")
+    model.learn(total_timesteps=300000, callback=[checkpoint_callback], reset_num_timesteps=False)
 
 
     model.save("outputs/checkpoints/ppo_godmode_v3_final")

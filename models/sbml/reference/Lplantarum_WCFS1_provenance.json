@@ -1,0 +1,40 @@
+[
+  {
+    "key": "ibt721",
+    "accession": "MODEL1507180045",
+    "revision": 2,
+    "filename": "MODEL1507180045_url.xml",
+    "sha256": "4a2544adc4e1facfe25d89394b25116394071f745ddd52e5ff4534a7762328e5",
+    "output_name": "Lactiplantibacillus_plantarum_WCFS1_iBT721.xml",
+    "expected_model_id": "MODEL1507180045",
+    "source_url": "https://www.biomodels.org/services/download/get-files/MODEL1507180045/2/MODEL1507180045_url.xml",
+    "output_path": "models/sbml/reference/Lactiplantibacillus_plantarum_WCFS1_iBT721.xml",
+    "removed_dangling_group_references": [],
+    "model_id": "MODEL1507180045",
+    "model_name": "Teusink2006 - Genome-scale metabolic network of Lactobacillus plantarum (iBT721)",
+    "reactions": 778,
+    "metabolites": 662,
+    "genes": 724,
+    "lp_locus_tags": 724
+  },
+  {
+    "key": "koduru2022",
+    "accession": "MODEL2210190005",
+    "revision": 2,
+    "filename": "LbPt.xml",
+    "sha256": "031b07a24bc3101fd97331dc93073ab88b27bb2d398d46d680aef32066536a53",
+    "output_name": "Lactiplantibacillus_plantarum_WCFS1_Koduru2022.xml",
+    "expected_model_id": "M_LbPt",
+    "source_url": "https://www.biomodels.org/services/download/get-files/MODEL2210190005/2/LbPt.xml",
+    "output_path": "models/sbml/reference/Lactiplantibacillus_plantarum_WCFS1_Koduru2022.xml",
+    "removed_dangling_group_references": [
+      "R_ATPH"
+    ],
+    "model_id": "M_LbPt",
+    "model_name": "Koduru2022 - Lactobacillus plantarum WCFS1 ",
+    "reactions": 1208,
+    "metabolites": 976,
+    "genes": 915,
+    "lp_locus_tags": 912
+  }
+]

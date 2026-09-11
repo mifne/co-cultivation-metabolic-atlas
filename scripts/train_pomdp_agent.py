@@ -10,9 +10,11 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from main import load_sbml_models, select_consortium_models, get_initial_params
 from src.dfba_simulator import dFBASimulator
 from src.rl_environment_pomdp import RealWorldConsortiumEnv
+from src.gpu_assignment import assign_gpu_for_worker
 
 def make_env(rank, seed=0):
     def _init():
+        assign_gpu_for_worker(rank)
         sbml_dir = "models/sbml/final_consortium"
         all_models = load_sbml_models(Path(sbml_dir))
         models = select_consortium_models(all_models)

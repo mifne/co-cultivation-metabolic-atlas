@@ -76,7 +76,17 @@ class ConstantFeedController:
 
 def run_simulation(controller_type, interval_minutes, model_path, vec_path, sbml_dir):
     dt_hours = 0.2 # 12-minute steps to avoid solver timeouts and make FBA 12x faster
-    env_params = {'max_time': 168.0} # Extend to 168h (7 days) to prove Competitive Exclusion
+    
+    # ===================================================================
+    # 重要な修正: max_time は訓練環境と一致させる（672h）
+    # -------------------------------------------------------------------
+    # 観測ベクトルに time/max_time が含まれており、訓練時は max_time=672h。
+    # ここを 168h にすると、エージェントは t=168h を「全体の終了」と誤認し、
+    # PHA最大化フェーズ（後半戦略）が発動せず PHA が極端に少なくなる。
+    # 168h の評価データは time_limit_hours で明示的に切る。
+    # ===================================================================
+    env_params = {'max_time': 168.0}
+    eval_limit  = 168.0  # RLエージェントの標準的な学習範囲に合わせる
     
     env_inst = make_env_custom(sbml_dir, env_params, dt=dt_hours)
     dummy_env = DummyVecEnv([lambda: env_inst])
@@ -97,13 +107,16 @@ def run_simulation(controller_type, interval_minutes, model_path, vec_path, sbml
     data = []
     done = False
     steps = 0
-    control_steps = 1 # 12 mins control interval / 12 mins dt = 1 step
-    save_steps = 5    # 60 mins / 12 mins dt = 5 steps
+    control_steps = 1 
+    save_steps = 5    
     current_action = np.array([0.05, 0.05, 0.05, 0.05, 0.5])
     
     while not done:
         sim_state = base_env.simulator.state
         time_t = sim_state.time
+        
+        if time_t >= eval_limit:
+            break
         
         ph = sim_state.metabolites.get('h_e', 1e-7)
         ph_val = -np.log10(max(1e-12, ph) / 1000.0)
@@ -119,8 +132,9 @@ def run_simulation(controller_type, interval_minutes, model_path, vec_path, sbml
         biomass_ns21 = sim_state.species['Rhizobacter_gummiphilus_NS21'].biomass if 'Rhizobacter_gummiphilus_NS21' in sim_state.species else 0
         biomass_lp = sim_state.species['Lactobacillus_plantarum'].biomass if 'Lactobacillus_plantarum' in sim_state.species else 0
         total_pha = sum(s.pha_accumulated for s in sim_state.species.values())
+        rubber_remaining = sim_state.rubber_concentration
 
-        # Save data every 1 hour (save_steps = 5) to keep CSV small
+        # Save data every 1 hour (save_steps = 5)
         if steps % save_steps == 0:
             data.append({
                 'Time': time_t,
@@ -129,6 +143,7 @@ def run_simulation(controller_type, interval_minutes, model_path, vec_path, sbml
                 'Biomass_NS21': biomass_ns21,
                 'Biomass_LP': biomass_lp,
                 'Total_PHA': total_pha,
+                'Rubber': rubber_remaining,
                 'Action_0': current_action[0],
                 'Action_1': current_action[1],
                 'Action_2': current_action[2],
@@ -139,20 +154,20 @@ def run_simulation(controller_type, interval_minutes, model_path, vec_path, sbml
         done = dones[0]
         steps += 1
         
-        # 絶滅（早期終了）した場合、残りの時間をバイオマス0で埋めてグラフを急落させる
-        if done and time_t < env_params['max_time'] - dt_hours:
-            print(f"    ⚠️ Extinction detected at {time_t}h! Padding remainder with dead state.")
-            remaining_steps = int((env_params['max_time'] - time_t) / dt_hours)
+        if done and time_t < eval_limit - dt_hours:
+            print(f"    ⚠️ Extinction detected at {time_t}h! Padding remainder.")
+            remaining_steps = int((eval_limit - time_t) / dt_hours)
             for i in range(remaining_steps):
                 time_t += dt_hours
                 if (steps + i) % save_steps == 0:
                     data.append({
                         'Time': time_t,
-                        'pH': ph_val, # Keep last pH
-                        'Biomass_OR16': 0.0, # Dead
-                        'Biomass_NS21': 0.0, # Dead
-                        'Biomass_LP': 0.0,   # Dead
-                        'Total_PHA': total_pha, # PHA remains as solid
+                        'pH': ph_val,
+                        'Biomass_OR16': 0.0,
+                        'Biomass_NS21': 0.0,
+                        'Biomass_LP': 0.0,
+                        'Total_PHA': total_pha,
+                        'Rubber': rubber_remaining,
                         'Action_0': 0.0,
                         'Action_1': 0.0,
                         'Action_2': 0.0,
@@ -165,8 +180,8 @@ def run_simulation(controller_type, interval_minutes, model_path, vec_path, sbml
     return df, mse
 
 def main():
-    model_path = "outputs/refined_models/godmode/godmode_final_refined.zip"
-    vec_path = "outputs/refined_models/godmode/godmode_final_refined_vecnormalize.pkl"
+    model_path = "outputs/checkpoints/ppo_godmode_v3_550000_steps.zip"
+    vec_path = "outputs/checkpoints/ppo_godmode_v3_vecnormalize_550000_steps.pkl"
     sbml_dir = "models/sbml/final_consortium"
 
     if not os.path.exists(model_path):

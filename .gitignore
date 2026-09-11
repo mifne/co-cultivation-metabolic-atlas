@@ -25,6 +25,16 @@ wheels/
 venv/
 ENV/
 env/
+.venv*/
+
+# Large experiment/model artifacts (not source)
+results/
+models/cooperative_surrogate/
+tmp/
+Trash/
+.antigravitycli/
+error_log.txt
+.pytest_cache/
 
 # IDEs
 .vscode/

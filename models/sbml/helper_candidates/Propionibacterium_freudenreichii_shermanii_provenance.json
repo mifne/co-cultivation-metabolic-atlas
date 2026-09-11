@@ -1,0 +1,121 @@
+{
+  "organism": "Propionibacterium freudenreichii subsp. shermanii",
+  "published_model_file": "models/sbml/helper_candidates/propionibacterium_panmodel_supplement/Final version of supplementary material/Supplementary file 4 S7/Model_XML_files/Model_XML_files/P_sherm_model.xml",
+  "source_article": "https://doi.org/10.3390/genes11101115",
+  "supplement_url": "https://mdpi-res.com/d_attachment/genes/genes-11-01115/article_deploy/genes-11-01115-s001.zip",
+  "retrieved": "2026-09-02",
+  "source_sha256": "6c44a9f736f018049896d058779fed55e8c532d68ac72ab556d1dbb0d4338a60",
+  "curated_sha256": "e79829cff1918d1b45474f731f6fefe714998df0e8b44fe3de7f6134e5fb007b",
+  "counts": {
+    "reactions": 1351,
+    "metabolites": 1197,
+    "genes": 719
+  },
+  "curation": [
+    "Normalized selected ModelSEED extracellular identifiers to the shared BiGG-like namespace",
+    "Changed normalized extracellular metabolite compartment from c to e",
+    "Opened existing lactate and propionate exchanges for medium tests",
+    "Closed glucose secretion while retaining uptake, matching reported sugar-consumption phenotypes",
+    "Kept helper oxygen exchange closed for the anaerobic propionate-producing phenotype",
+    "Added no reaction, metabolite, or gene"
+  ],
+  "identifier_map": [
+    {
+      "source": "S_cpd00001_ext",
+      "canonical": "h2o_e"
+    },
+    {
+      "source": "S_cpd00009_ext",
+      "canonical": "pi_e"
+    },
+    {
+      "source": "S_cpd00013_ext",
+      "canonical": "nh4_e"
+    },
+    {
+      "source": "S_cpd00027_ext",
+      "canonical": "glc__D_e"
+    },
+    {
+      "source": "S_cpd00030_ext",
+      "canonical": "mn2_e"
+    },
+    {
+      "source": "S_cpd00034_ext",
+      "canonical": "zn2_e"
+    },
+    {
+      "source": "S_cpd00048_ext",
+      "canonical": "so4_e"
+    },
+    {
+      "source": "S_cpd00058_ext",
+      "canonical": "cu2_e"
+    },
+    {
+      "source": "S_cpd00067_ext",
+      "canonical": "h_e"
+    },
+    {
+      "source": "S_cpd00099_ext",
+      "canonical": "cl_e"
+    },
+    {
+      "source": "S_cpd00104_ext",
+      "canonical": "btn_e"
+    },
+    {
+      "source": "S_cpd00141_ext",
+      "canonical": "ppa_e"
+    },
+    {
+      "source": "S_cpd00149_ext",
+      "canonical": "cobalt2_e"
+    },
+    {
+      "source": "S_cpd00159_ext",
+      "canonical": "lac__L_e"
+    },
+    {
+      "source": "S_cpd00205_ext",
+      "canonical": "k_e"
+    },
+    {
+      "source": "S_cpd00254_ext",
+      "canonical": "mg2_e"
+    },
+    {
+      "source": "S_cpd00644_ext",
+      "canonical": "pnto__R_e"
+    },
+    {
+      "source": "S_cpd00971_ext",
+      "canonical": "na1_e"
+    },
+    {
+      "source": "S_cpd03424_ext",
+      "canonical": "b12_e"
+    },
+    {
+      "source": "S_cpd10515_ext",
+      "canonical": "fe2_e"
+    },
+    {
+      "source": "S_cpd10516_ext",
+      "canonical": "fe3_e"
+    },
+    {
+      "source": "S_cpd00029_ext",
+      "canonical": "ac_e"
+    },
+    {
+      "source": "S_cpd00007_ext",
+      "canonical": "o2_pfreud_e"
+    }
+  ],
+  "limitations": [
+    "The pan-model-derived strain reconstruction requires strain-specific experimental validation",
+    "NH3 is mapped to the shared NH4 pool as a pH-7 bulk nitrogen approximation",
+    "NS21 3HV pathway structure is represented, but its kinetic capacity and PHBV composition require calibration"
+  ]
+}

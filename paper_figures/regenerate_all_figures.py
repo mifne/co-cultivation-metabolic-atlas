@@ -33,13 +33,13 @@ def run_cmd(cmd_args, desc, abort_on_fail=True):
 
 
 def py(script_path):
-    return ["mamba", "run", "-n", "co-cultivation", "python", script_path]
+    return ["/home/reiya/miniforge3/envs/co-cultivation/bin/python", script_path]
 
 
 def main():
     print("=" * 65)
     print(" Master Paper Figures Regeneration Pipeline")
-    print(" Model: outputs/refined_models/godmode/godmode_final_refined.zip")
+    print(" Model: outputs/checkpoints/ppo_godmode_v3_550000_steps.zip")
     print("=" * 65)
 
     # ── Phase 1: Data Extraction ──────────────────────────────────

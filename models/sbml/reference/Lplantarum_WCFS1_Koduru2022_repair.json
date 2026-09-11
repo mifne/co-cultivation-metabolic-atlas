@@ -1,0 +1,118 @@
+{
+  "created_utc": "2026-09-01T01:34:06.662399+00:00",
+  "source_2022": {
+    "path": "models/sbml/reference/Lactiplantibacillus_plantarum_WCFS1_Koduru2022.xml",
+    "biomodels_accession": "MODEL2210190005",
+    "sha256": "80f4ee5f146394faefe6f9e2bf98ab49e6bf1e5a78bba48fd9f3db51e75aa238",
+    "model_id": "M_LbPt",
+    "reactions": 1208,
+    "metabolites": 976,
+    "genes": 915
+  },
+  "biomass_reference": {
+    "path": "models/sbml/reference/Lactiplantibacillus_plantarum_WCFS1_iBT721.xml",
+    "biomodels_accession": "MODEL1507180045",
+    "pubmed": "17062565",
+    "sha256": "6e67165128100f25ac547f8cf877cb0241257f72053f0109c02ba858539a8c6a"
+  },
+  "scientific_support": {
+    "D_lactate_peptidoglycan_pubmed": "8808932",
+    "mDAP_peptidoglycan_pubmed": "21949063"
+  },
+  "changes": [
+    {
+      "type": "replace_biomass_stoichiometry",
+      "reaction": "biomass",
+      "removed_component": "peptido_LPL_c",
+      "restored_component": "PGlac2_c",
+      "source_reaction": "iBT721 biomass_LPL60",
+      "metabolite_mapping": {
+        "CPS_LPL2_LSQBKTc_RSQBKT": "CPS_LPL2_c",
+        "DNA_LPL_LSQBKTc_RSQBKT": "DNA_LPL_c",
+        "LTA_LPL_LSQBKTc_RSQBKT": "LTA_LPL_c",
+        "MGD_LSQBKTc_RSQBKT": "MGD_c",
+        "PGlac2_LSQBKTc_RSQBKT": "PGlac2_c",
+        "PROT_LPL_v60_LSQBKTc_RSQBKT": "PROT_LPL_v6.0_c",
+        "RNA_LPL_LSQBKTc_RSQBKT": "RNA_LPL_c",
+        "RTAglc_LSQBKTc_RSQBKT": "RTAglc_c",
+        "atp_LSQBKTc_RSQBKT": "atp_c",
+        "btn_LSQBKTc_RSQBKT": "btn_c",
+        "clpn_LPL_LSQBKTc_RSQBKT": "clpn_LPL_c",
+        "coa_LSQBKTc_RSQBKT": "coa_c",
+        "h2o_LSQBKTc_RSQBKT": "h2o_c",
+        "lyspg_LPL_LSQBKTc_RSQBKT": "lyspg_LPL_c",
+        "nad_LSQBKTc_RSQBKT": "nad_c",
+        "pg_LPL_LSQBKTc_RSQBKT": "pg_LPL_c",
+        "pydx5p_LSQBKTc_RSQBKT": "pydx5p_c",
+        "thf_LSQBKTc_RSQBKT": "thf_c",
+        "thmpp_LSQBKTc_RSQBKT": "thmpp_c",
+        "udcpdp_LSQBKTc_RSQBKT": "udcpdp_c",
+        "adp_LSQBKTc_RSQBKT": "adp_c",
+        "h_LSQBKTc_RSQBKT": "h_c",
+        "pi_LSQBKTc_RSQBKT": "pi_c"
+      },
+      "original_2022_biomass": {
+        "CPS_LPL2_c": -1.4,
+        "DNA_LPL_c": -0.000617,
+        "LTA_LPL_c": -0.00013,
+        "MGD_c": -1e-05,
+        "PROT_LPL_v6.0_c": -0.00243,
+        "RNA_LPL_c": -0.002784,
+        "RTAglc_c": -0.01378,
+        "atp_c": -27.2,
+        "btn_c": -1e-05,
+        "clpn_LPL_c": -1.8e-05,
+        "coa_c": -0.0002,
+        "h2o_c": -27.2,
+        "lyspg_LPL_c": -0.000164,
+        "nad_c": -0.0002,
+        "peptido_LPL_c": -0.1462,
+        "pg_LPL_c": -0.000625,
+        "pydx5p_c": -1e-06,
+        "thf_c": -1e-05,
+        "thmpp_c": -1e-05,
+        "udcpdp_c": -0.0002,
+        "adp_c": 27.2,
+        "h_c": 27.2,
+        "pi_c": 27.2
+      }
+    },
+    {
+      "type": "restore_reaction",
+      "reaction": "UGMDDS2",
+      "source_reaction": "iBT721 UGMDDS2",
+      "gpr": "lp_0518"
+    },
+    {
+      "type": "canonicalize_gene_identifiers",
+      "policy": "strain-specific locus_tag in GPR; project IDs and aliases in sidecar registry",
+      "audit": {
+        "organism_key": "WCFS1",
+        "genes_before": 915,
+        "genes_after": 913,
+        "renamed_aliases": 1,
+        "merged_duplicate_gene_objects": 1,
+        "simplified_gpr_rules": 2,
+        "retired_unresolved_gene_ids": [
+          "lp1406"
+        ],
+        "unresolved_gene_ids": []
+      }
+    }
+  ],
+  "validation": {
+    "source_fully_open_growth_per_h": 0.0,
+    "repaired_fully_open_growth_per_h": 50.06545521883457,
+    "no_exchange_or_sink_added": true,
+    "output_model_id": "WCFS1_Koduru2022_repaired",
+    "reactions": 1209,
+    "metabolites": 976,
+    "genes": 913
+  },
+  "outputs": {
+    "reference": "models/sbml/reference/Lactiplantibacillus_plantarum_WCFS1_Koduru2022_repaired.xml",
+    "reference_sha256": "f32b9707fb3158d18acfb6c91bec1ba4f96cd1cec22e7915f64dced50ab7635a",
+    "production": "models/sbml/final_consortium/Lactobacillus_plantarum.xml",
+    "production_sha256": "f32b9707fb3158d18acfb6c91bec1ba4f96cd1cec22e7915f64dced50ab7635a"
+  }
+}

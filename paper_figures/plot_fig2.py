@@ -29,25 +29,34 @@ df_a = pd.read_csv('paper_figures/fig2A_learning_curve.csv')
 # カラム名の特定 (サブエージェントの出力に依存しないよう柔軟に)
 cols_a = df_a.columns
 step_col = [c for c in cols_a if 'step' in c.lower()][0]
-surv_col = [c for c in cols_a if 'survival' in c.lower()][0]
+surv_cols = [c for c in cols_a if 'survival' in c.lower()]
 
-ax_a.plot(df_a[step_col], df_a[surv_col], color='#1f77b4', linewidth=2.5, alpha=0.9, label='Survival Hours')
+# Plotting the raw data lightly
+ax_a.scatter(df_a[step_col], df_a[surv_cols[0]], color='#1f77b4', alpha=0.2, s=10, label='Survival (Raw)')
+
+# Plotting the rolling average prominently
+df_a['surv_roll'] = df_a[surv_cols[0]].rolling(window=10, min_periods=1).mean()
+l1 = ax_a.plot(df_a[step_col], df_a['surv_roll'], color='#1f77b4', linewidth=3, label='Survival (10-Ep Avg)')
+
 ax_a.set_xlabel('Training Steps')
-ax_a.set_ylabel('Survival Hours (h)', color='#1f77b4', fontweight='bold')
+ax_a.set_ylabel('Survival Hours', color='#1f77b4', fontweight='bold')
 ax_a.tick_params(axis='y', labelcolor='#1f77b4')
-ax_a.set_title('A. Learning Dynamics: Survival & Production', loc='left', fontweight='bold')
 
-# ゴム分解量が存在する場合は第2軸にプロット
-rub_cols = [c for c in cols_a if 'rubber' in c.lower() and 'deg' in c.lower()]
-if rub_cols:
+pha_cols = [c for c in df_a.columns if 'pha' in c.lower()]
+if pha_cols:
     ax_a2 = ax_a.twinx()
-    ax_a2.plot(df_a[step_col], df_a[rub_cols[0]], color='#ff7f0e', linewidth=2.5, alpha=0.8, label='Rubber Degraded')
-    ax_a2.set_ylabel('Total Rubber Degraded (g)', color='#ff7f0e', fontweight='bold')
-    ax_a2.tick_params(axis='y', labelcolor='#ff7f0e')
-    # 両方の凡例を表示
-    lines, labels = ax_a.get_legend_handles_labels()
-    lines2, labels2 = ax_a2.get_legend_handles_labels()
-    ax_a.legend(lines + lines2, labels + labels2, loc='upper left')
+    df_a['pha_roll'] = df_a[pha_cols[0]].rolling(window=10, min_periods=1).mean()
+    l2 = ax_a2.plot(df_a[step_col], df_a['pha_roll'], color='#d62728', linewidth=3, linestyle='--', label='Total PHA (10-Ep Avg)')
+    ax_a2.set_ylabel('Total PHA (mmol)', color='#d62728', fontweight='bold')
+    ax_a2.tick_params(axis='y', labelcolor='#d62728')
+    
+    lines_a = l1 + l2
+    labels_a = [l.get_label() for l in lines_a]
+    ax_a.legend(lines_a, labels_a, loc='lower right', frameon=True, fancybox=True, framealpha=0.9)
+else:
+    ax_a.legend(loc='lower right', frameon=True, fancybox=True, framealpha=0.9)
+
+ax_a.set_title('A. Learning Curve (Survival vs Target Production)', loc='left', fontweight='bold')
 
 # --- 2B: Tracking Time-course ---
 ax_b = fig.add_subplot(gs[0, 1])
@@ -92,15 +101,35 @@ ax_c.set_yticks(yticks[::step_y])
 ax_c.set_xticklabels([f"{val_pivot.columns[int(x)]:.1f}" for x in xticks[::step_x]])
 ax_c.set_yticklabels([f"{val_pivot.index[int(y)]:.1f}" for y in yticks[::step_y]])
 
-# --- 2D: Policy Heatmap (NS21 Specific Feed Action) ---
+# --- 2D: Policy Heatmap (最も変化量が大きいアクションを選択) ---
 ax_d = fig.add_subplot(gs[1, 1])
-# Action_1 は NS21 (sn_ns21) の供給量
-act_pivot = df_cd.pivot(index='NS21_biomass', columns='OR16_biomass', values='Action_1')
-sns.heatmap(act_pivot, ax=ax_d, cmap='coolwarm', cbar_kws={'label': 'Action: NS21 Specific Feed Rate'})
+# 各アクションの標準偏差を計算し、最も情報量の多いアクションを表示する
+action_cols = [c for c in df_cd.columns if c.startswith('Action_')]
+action_labels = {
+    'Action_0': 'OR16 Specific Feed Rate',
+    'Action_1': 'NS21 Specific Feed Rate',
+    'Action_2': 'LP Specific Feed Rate',
+    'Action_3': 'Yeast Extract Feed Rate',
+    'Action_4': 'Dissolved O₂ Setpoint (kLa)',
+}
+# 変化量（std）が最大のアクションを選択
+valid_actions = [c for c in action_cols if df_cd[c].std() > 1e-6]
+if valid_actions:
+    best_action = max(valid_actions, key=lambda c: df_cd[c].std())
+else:
+    best_action = action_cols[0]
+
+best_label = action_labels.get(best_action, best_action)
+
+act_pivot = df_cd.pivot(index='NS21_biomass', columns='OR16_biomass', values=best_action)
+
+# vmin=0を削除し、robust=True（外れ値を無視したスケーリング）または自動範囲設定を使用
+sns.heatmap(act_pivot, ax=ax_d, cmap='magma', robust=True,
+            cbar_kws={'label': f'Policy: {best_label}'})
 ax_d.invert_yaxis()
 ax_d.set_xlabel('OR16 Biomass Density (g/L)')
 ax_d.set_ylabel('NS21 Biomass Density (g/L)')
-ax_d.set_title('D. Policy Decision Boundary (NS21 Nutrient)', loc='left', fontweight='bold')
+ax_d.set_title(f'D. Policy Map: {best_label}', loc='left', fontweight='bold')
 
 ax_d.set_xticks(xticks[::step_x])
 ax_d.set_yticks(yticks[::step_y])

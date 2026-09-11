@@ -7,6 +7,10 @@ import argparse
 import numpy as np
 from pathlib import Path
 import json
+import signal
+import sys
+import os
+import multiprocessing as mp
 import matplotlib.pyplot as plt
 import cobra
 from typing import Dict, Tuple, Optional, List, Callable
@@ -14,21 +18,79 @@ from typing import Dict, Tuple, Optional, List, Callable
 from src.dfba_simulator import dFBASimulator
 from src.rl_environment import ConsortiumEnv
 from src.ppo_agent import ConsortiumPPOAgent
+from src.gpu_assignment import assign_gpu_for_worker
+from src.fba_surrogate_service import start_surrogate_service
 from src.callbacks import ConsortiumCallback
+from src.utils import load_sbml_models, select_consortium_models, get_initial_params, create_mock_models
 
 
-def make_env(sbml_dir: str, env_params: dict, data_log_path: Optional[str] = None, rank: int = 0):
+def load_requested_models(sbml_dir: str | None, profile: str = 'legacy3') -> dict:
+    """Read an explicit consortium profile without creating or curating GEMs."""
+    project = Path(__file__).resolve().parent
+    models = load_sbml_models(Path(sbml_dir) if sbml_dir else project / 'models/sbml/final_consortium')
+    if profile == 'pf-helper3' and not any('freudenreichii' in name.lower() for name in models):
+        helper_path = project / 'models/sbml/helper_candidates/Propionibacterium_freudenreichii_shermanii_curated.xml'
+        if not helper_path.is_file():
+            raise FileNotFoundError(f'Requested Pf GEM is missing: {helper_path}')
+        models['Propionibacterium_freudenreichii_shermanii'] = cobra.io.read_sbml_model(str(helper_path))
+    return select_consortium_models(models, profile=profile)
+
+
+def cultivation_options(args) -> dict:
+    dynamics = getattr(args, 'dynamics', 'legacy')
+    mode = getattr(args, 'fba_mode', None) or ('separate' if dynamics in {'audited','physiology'} else 'cooperative')
+    backend = getattr(args, 'solver_backend', 'highs')
+    if dynamics in {'audited','physiology'} and (mode != 'separate' or backend != 'highs'):
+        raise ValueError('Audited dynamics require --fba-mode separate and --solver-backend highs')
+    physiology = {}
+    if getattr(args, 'physiology_config', None):
+        if dynamics != 'physiology':
+            raise ValueError('--physiology-config requires --dynamics physiology')
+        physiology = json.loads(Path(args.physiology_config).read_text(encoding='utf-8'))
+        if not isinstance(physiology, dict) or set(physiology)-{'maintenance','basal_death_rates','starvation_death_rates','nitrogen_policy','remobilize_pha'}:
+            raise ValueError('unsupported physiology configuration')
+    control_dt = float(getattr(args, 'control_dt', .2))
+    if not np.isfinite(control_dt) or control_dt <= 0:
+        raise ValueError('control-dt must be positive and finite')
+    return dict(
+        dynamics=dynamics, consortium_profile=getattr(args, 'consortium_profile', 'legacy3'), physiology=physiology,
+        control_dt=control_dt, internal_dt=getattr(args, 'internal_dt', .025),
+        fba_mode=mode, solver_backend=backend,
+        initial_rubber=getattr(args, 'initial_rubber', 100.),
+        initial_nh4=getattr(args, 'initial_nh4', None),
+        ph_control_target=getattr(args, 'ph_target', None) if getattr(args, 'ph_target', None) is not None
+                          else (7. if dynamics in {'audited','physiology'} else None),
+        observation_schema=getattr(args, 'observation_schema', None) or ('metabolic_v2' if dynamics in {'audited','physiology'} else 'legacy_v1'),
+        max_specific_feed_rate_mmol_l_h=getattr(args, 'max_specific_feed_rate', .1),
+    )
+
+
+def make_env(
+    sbml_dir: str,
+    env_params: dict,
+    data_log_path: Optional[str] = None,
+    rank: int = 0,
+    preloaded_models: Optional[dict] = None,
+):
     """
     環境作成用のファクトリ関数を返す。
     """
     def _init():
-        if sbml_dir:
-            all_models = load_sbml_models(Path(sbml_dir))
-            models = select_consortium_models(all_models)
+        assigned_gpu = assign_gpu_for_worker(
+            rank,
+            env_params.get('gpu_ids'),
+            env_params.get('gpu_slots_per_device', 1),
+        )
+        # Linux ``fork`` workers inherit these read-mostly GEM objects with
+        # copy-on-write, avoiding a complete SBML copy per environment.
+        if preloaded_models is not None:
+            models = preloaded_models
         else:
-            models = create_mock_models()
+            models = load_requested_models(sbml_dir, env_params.get('consortium_profile', 'legacy3'))
             
         initial_biomass, initial_metabolites = get_initial_params(models)
+        if env_params.get('initial_nh4') is not None:
+            initial_metabolites['nh4_e'] = float(env_params['initial_nh4'])
         
         # 並列環境ごとに異なるログファイル名を生成
         env_log_path = None
@@ -36,170 +98,120 @@ def make_env(sbml_dir: str, env_params: dict, data_log_path: Optional[str] = Non
             log_path_obj = Path(data_log_path)
             env_log_path = str(log_path_obj.parent / f"{log_path_obj.stem}_env{rank}{log_path_obj.suffix}")
 
-        sim = dFBASimulator(
+        surrogate_service = env_params.get('surrogate_service')
+        surrogate_services = env_params.get('surrogate_services') or []
+        if surrogate_services:
+            surrogate_service = surrogate_services[rank % len(surrogate_services)]
+
+        simulator_type = dFBASimulator
+        extra_simulator_kwargs = {}
+        if env_params.get('dynamics', 'legacy') in {'audited','physiology'}:
+            from src.audited_dfba import AuditedDFBASimulator
+            if env_params.get('fba_mode', 'separate') != 'separate' or env_params.get('solver_backend', 'highs') != 'highs':
+                raise ValueError('Audited dynamics require separate FBA and highs')
+            simulator_type = AuditedDFBASimulator
+            if env_params['dynamics'] == 'physiology':
+                from src.physiology_dfba import PhysiologyDFBASimulator
+                simulator_type = PhysiologyDFBASimulator
+                extra_simulator_kwargs.update(env_params.get('physiology', {}))
+            extra_simulator_kwargs['max_internal_dt'] = env_params.get('internal_dt', .025)
+        sim = simulator_type(
             models=models,
             initial_biomass=initial_biomass,
             initial_metabolites=initial_metabolites,
-            initial_rubber=100.0,
+            initial_rubber=env_params.get('initial_rubber', 100.0),
             volume=1.0,
-            dt=0.2,
-            data_log_path=env_log_path
+            dt=env_params.get('control_dt', .2),
+            data_log_path=env_log_path,
+            solver_backend=env_params.get('solver_backend', 'highs'),
+            cuopt_method=env_params.get('cuopt_method', 'pdlp'),
+            fba_mode=env_params.get('fba_mode', 'separate' if simulator_type is not dFBASimulator else 'cooperative'),
+            ph_control_target=env_params.get('ph_control_target'),
+            surrogate_dir=env_params.get('surrogate_dir'),
+            surrogate_device=env_params.get('surrogate_device', 'cuda'),
+            surrogate_service=surrogate_service,
+            surrogate_audit_interval=env_params.get('surrogate_audit_interval', 128),
+            surrogate_objective_rtol=env_params.get('surrogate_objective_rtol', 0.02),
+            surrogate_ood_threshold=env_params.get('surrogate_ood_threshold', 8.0),
+            cooperative_parsimony=env_params.get('cooperative_parsimony', True),
+            cooperative_highs_presolve=env_params.get('cooperative_highs_presolve', True),
+            cooperative_highs_method=env_params.get('cooperative_highs_method', 'highs'),
+            cooperative_capture_training_snapshot=env_params.get(
+                'cooperative_capture_training_snapshot', False
+            ),
+            cooperative_surrogate_artifact=env_params.get(
+                'cooperative_surrogate_artifact'
+            ),
+            cooperative_surrogate_device=env_params.get(
+                'cooperative_surrogate_device', 'cuda'
+            ),
+            cooperative_surrogate_top_k=env_params.get(
+                'cooperative_surrogate_top_k', 16
+            ),
+            cooperative_surrogate_exact_interval=env_params.get(
+                'cooperative_surrogate_exact_interval', 128
+            ),
+            cooperative_surrogate_require_qualified=env_params.get(
+                'cooperative_surrogate_require_qualified', True
+            ),
+            cooperative_surrogate_validation_manifest=env_params.get(
+                'cooperative_surrogate_validation_manifest'
+            ),
+            cooperative_surrogate_distance_threshold=env_params.get(
+                'cooperative_surrogate_distance_threshold'
+            ),
+            cooperative_gpu_qp_projection=env_params.get(
+                'cooperative_gpu_qp_projection', False
+            ),
+            cooperative_gpu_qp_only=env_params.get(
+                'cooperative_gpu_qp_only', False
+            ),
+            cooperative_gpu_qp_candidates=env_params.get(
+                'cooperative_gpu_qp_candidates', 128
+            ),
+            cooperative_gpu_qp_service=env_params.get(
+                'cooperative_gpu_qp_service'
+            ),
+            **extra_simulator_kwargs,
         )
+        if assigned_gpu is not None:
+            sim.assigned_gpu = assigned_gpu
         
-        env = ConsortiumEnv(simulator=sim, **env_params)
+        env_kwargs = {
+            key: value for key, value in env_params.items()
+            if key not in {
+                'solver_backend', 'cuopt_method', 'fba_mode', 'gpu_ids',
+                'gpu_slots_per_device', 'surrogate_dir', 'surrogate_device',
+                'surrogate_service', 'surrogate_audit_interval',
+                'surrogate_services',
+                'surrogate_objective_rtol', 'surrogate_ood_threshold',
+                'cooperative_parsimony', 'cooperative_highs_presolve',
+                'cooperative_highs_method',
+                'cooperative_capture_training_snapshot',
+                'cooperative_surrogate_artifact', 'cooperative_surrogate_device',
+                'cooperative_surrogate_top_k',
+                'cooperative_surrogate_exact_interval',
+                'cooperative_surrogate_require_qualified',
+                'cooperative_surrogate_validation_manifest',
+                'cooperative_surrogate_distance_threshold',
+                'cooperative_gpu_qp_projection',
+                'cooperative_gpu_qp_only',
+                'cooperative_gpu_qp_candidates',
+                'cooperative_gpu_qp_service',
+                'dynamics', 'consortium_profile', 'control_dt', 'internal_dt', 'physiology',
+                'initial_rubber', 'initial_nh4', 'ph_control_target',
+            }
+        }
+        env = ConsortiumEnv(simulator=sim, **env_kwargs)
         return env
     return _init
 
 
-def create_mock_models() -> dict:
-    """
-    モックのCOBRAモデルを作成（実際のSBMLファイルがない場合のテスト用）
-    
-    Returns:
-        {species_name: cobra.Model}
-    """
-    print("⚠️  モックモデルを使用（実際のSBMLファイルを使用する場合は--sbml-dirを指定）")
-    
-    models = {}
-    species_names = ['Sphingobium_japonicum', 'Pseudomonas_putida_KT2440', 'Lactobacillus_plantarum']
-    
-    for species in species_names:
-        # 簡単なモックモデルを作成
-        model = cobra.Model(f'{species}_mock')
-        
-        # 代謝物
-        glc = cobra.Metabolite('glc_e', compartment='e', name='Glucose')
-        arg = cobra.Metabolite('arg_e', compartment='e', name='Arginine')
-        trp = cobra.Metabolite('trp_e', compartment='e', name='Tryptophan')
-        leu = cobra.Metabolite('leu_e', compartment='e', name='Leucine')
-        nh4 = cobra.Metabolite('nh4_e', compartment='e', name='Ammonium')
-        biomass = cobra.Metabolite('biomass', compartment='c', name='Biomass')
-        
-        # 交換反応
-        ex_glc = cobra.Reaction('EX_glc_e')
-        ex_glc.add_metabolites({glc: -1})
-        ex_glc.bounds = (-100, 1000)
-        
-        ex_nh4 = cobra.Reaction('EX_nh4_e')
-        ex_nh4.add_metabolites({nh4: -1})
-        ex_nh4.bounds = (-100, 1000)
-        
-        ex_arg = cobra.Reaction('EX_arg_e')
-        ex_arg.add_metabolites({arg: -1})
-        ex_arg.bounds = (-10, 1000)
-        
-        ex_trp = cobra.Reaction('EX_trp_e')
-        ex_trp.add_metabolites({trp: -1})
-        ex_trp.bounds = (-10, 1000)
-        
-        ex_leu = cobra.Reaction('EX_leu_e')
-        ex_leu.add_metabolites({leu: -1})
-        ex_leu.bounds = (-10, 1000)
-        
-        # バイオマス反応
-        biomass_rxn = cobra.Reaction('BIOMASS')
-        biomass_rxn.add_metabolites({
-            glc: -1,
-            nh4: -0.5,
-            arg: -0.1,
-            trp: -0.05,
-            leu: -0.08,
-            biomass: 1
-        })
-        biomass_rxn.bounds = (0, 1000)
-        
-        # モデルに追加
-        model.add_reactions([ex_glc, ex_nh4, ex_arg, ex_trp, ex_leu, biomass_rxn])
-        model.objective = 'BIOMASS'
-        
-        models[species] = model
-    
-    return models
-
-
-def load_sbml_models(sbml_dir: Path) -> dict:
-    """
-    SBMLファイルからモデルを読み込み
-    """
-    models = {}
-    sbml_files = list(sbml_dir.glob('*.xml')) + list(sbml_dir.glob('*.sbml'))
-    
-    if not sbml_files:
-        raise FileNotFoundError(f"SBMLファイルが見つかりません: {sbml_dir}")
-    
-    # print(f"\n📁 SBMLファイル検出: {len(sbml_files)}件") # Quiet
-    
-    for sbml_file in sbml_files:
-        species_name = sbml_file.stem
-        try:
-            model = cobra.io.read_sbml_model(str(sbml_file))
-            models[species_name] = model
-        except Exception:
-            continue
-    
-    if not models:
-        raise ValueError(f"有効なSBMLモデルが1つも読み込めませんでした: {sbml_dir}")
-    
-    return models
-
-
-def select_consortium_models(models: dict) -> dict:
-    """
-    真の精鋭3種（OR16, NS21, LP）を選定
-    """
-    priority_species = [
-        ('Actinoplanes_sp_OR16_lcp', 'Engine 1: Lcp分解'),
-        ('Rhizobacter_gummiphilus_NS21', 'Engine 2: Rox分解 + PHA蓄積'),
-        ('Lactobacillus_plantarum', 'Stabilizer: 代謝安定化'),
-    ]
-    selected = {}
-    for key, role in priority_species:
-        if key in models:
-            selected[key] = models[key]
-            print(f"  ✅ {role}: {key}")
-    if len(selected) < 3:
-        for name, model in models.items():
-            if name not in selected and len(selected) < 3:
-                selected[name] = model
-                print(f"  ✅ 補完: {name}")
-    return selected
 
 
 
-def get_initial_params(models: dict) -> Tuple[dict, dict]:
-    """
-    初期パラメータを取得（M9 + LP生存用サプリメント）
-    科学的調整: OR16優位の初期比率と低糖条件により共生を誘導
-    """
-    # OR16を主役に、LPとNS21をサポーターとして1:5の比率で開始
-    initial_biomass = {
-        name: 0.5 if 'OR16' in name else 0.1 
-        for name in models.keys()
-    }
-    
-    initial_metabolites = {
-        'glc__D_e': 0.1, 'nh4_e': 50.0, 'pi_e': 50.0, 'o2_e': 0.25,
-        'so4_e': 2.0, 'mg2_e': 2.0, 'ca2_e': 0.1, 'k_e': 10.0, 'cl_e': 10.0,
-        'fe3_e': 0.1, 'fe2_e': 0.1, 'h_e': 0.0001, 'h2o_e': 55000.0, 'co2_e': 1.0,
-        'zn2_e': 0.01, 'mn2_e': 0.1, 'cu2_e': 0.01, 'cobalt2_e': 0.01,
-        'ni2_e': 0.01, 'mobd_e': 0.01,
-        # --- 必須ビタミン・補酵素 (LP要求分) ---
-        'nac_e': 0.1, 'ribflv_e': 0.1, 'pnto__R_e': 0.1, 'thm_e': 0.1,
-        'btn_e': 0.1, '4abz_e': 0.1, 'fol_e': 0.1, 'nicnt_e': 0.1,
-        'ade_e': 0.1, 'gua_e': 0.1, 'ura_e': 0.1, 'xan_e': 0.1, 'orot_e': 0.1,
-        'ins_e': 0.1, 'thymd_e': 0.1,
-        # --- 実用化修正: 個別アミノ酸を廃止し、酵母エキスに集約 ---
-        'yeast_extract_e': 1.0,
 
-        # --- バイオサーファクタント代替 (2-methylbutanoic acid) ---
-        '2mba_e': 0.0,
-        # --- ゴム中間体 ---
-        'C30_oligo_e': 0.0, 'odtd_e': 0.0,
-        # --- 種特異的栄養素の初期値 ---
-        'mlttr_e': 0.0, 'ptrc_e': 0.0, 'mnl_e': 0.0
-    }
 
-    return initial_biomass, initial_metabolites
 
 
 
@@ -209,7 +221,7 @@ def setup_simulator(models: dict, data_log_path: Optional[str] = None) -> dFBASi
     """
     initial_biomass, initial_metabolites = get_initial_params(models)
     initial_rubber = 100.0
-    dt = 0.1
+    dt = 0.2
     
     simulator = dFBASimulator(
         models=models,
@@ -256,27 +268,56 @@ def train_agent(args):
     print("🧬 訓練開始")
     
     # モデルの読み込み
-    if hasattr(args, 'sbml_dir') and args.sbml_dir:
-        all_models = load_sbml_models(Path(args.sbml_dir))
-        models = select_consortium_models(all_models)
-    else:
-        models = create_mock_models()
+    options = cultivation_options(args)
+    models = load_requested_models(getattr(args, 'sbml_dir', None), options['consortium_profile'])
     
-    # パラメータ設定
-    initial_biomass, initial_metabolites = get_initial_params(models)
-    simulator_params = {
-        'models': models,
-        'initial_biomass': initial_biomass,
-        'initial_metabolites': initial_metabolites,
-        'initial_rubber': 100.0,
-        'volume': 1.0,
-        'dt': 0.1,
-        'data_log_path': getattr(args, 'data_log_path', None)
-    }
-    
+    # One parameter source is shared by training and evaluation factories.
     env_params = {
-        'max_time': args.max_steps * 0.2, # dt=0.2に合わせて時間に変換
+        'max_time': args.max_steps * options['control_dt'],
+        'solver_backend': getattr(args, 'solver_backend', 'highs'),
+        'cuopt_method': getattr(args, 'cuopt_method', 'pdlp'),
+        'fba_mode': getattr(args, 'fba_mode', 'cooperative'),
+        'gpu_ids': getattr(args, 'gpu_ids', None),
+        'gpu_slots_per_device': getattr(args, 'gpu_slots_per_device', 1),
+        'surrogate_dir': getattr(args, 'surrogate_dir', None),
+        'surrogate_device': getattr(args, 'surrogate_device', 'cuda'),
+        'surrogate_audit_interval': getattr(args, 'surrogate_audit_interval', 128),
+        'surrogate_objective_rtol': getattr(args, 'surrogate_objective_rtol', 0.02),
+        'surrogate_ood_threshold': getattr(args, 'surrogate_ood_threshold', 8.0),
     }
+    env_params.update(options)
+
+    surrogate_managers = []
+    if env_params['solver_backend'] == 'surrogate' and args.n_envs > 1:
+        if not env_params['surrogate_dir']:
+            raise ValueError('--surrogate-dir is required for the surrogate backend')
+        raw_gpu_ids = env_params.get('gpu_ids') or os.environ.get('DFBA_GPU_IDS')
+        service_devices = []
+        if raw_gpu_ids:
+            service_devices = [
+                f"cuda:{int(value.strip())}"
+                for value in str(raw_gpu_ids).split(',')
+                if value.strip()
+            ]
+        if not service_devices:
+            service_devices = [env_params['surrogate_device']]
+        surrogate_services = []
+        for service_device in service_devices:
+            manager, service = start_surrogate_service(
+                models,
+                env_params['surrogate_dir'],
+                device=service_device,
+                batch_window_ms=getattr(args, 'surrogate_batch_window_ms', 2.0),
+                max_batch_size=getattr(args, 'surrogate_max_batch_size', 64),
+                ood_threshold=env_params['surrogate_ood_threshold'],
+            )
+            surrogate_managers.append(manager)
+            surrogate_services.append(service)
+        env_params['surrogate_services'] = surrogate_services
+        # Each manager owns one CUDA context; workers are round-robin sharded.
+        import atexit
+        for manager in surrogate_managers:
+            atexit.register(manager.shutdown)
 
     # 学習率スケジュールの設定
     lr = args.learning_rate
@@ -284,10 +325,32 @@ def train_agent(args):
         print(f"📉 線形学習率スケジュールを適用 (Initial LR: {lr})")
         lr = linear_schedule(lr)
 
+    # The surrogate service owns CUDA. Environment workers only update their
+    # private copy-on-write GEM bounds, so fork can share the large immutable
+    # portion of the three models safely and substantially reduce host RAM.
+    subproc_start_method = None
+    shared_worker_models = None
+    if (
+        args.n_envs > 1
+        and env_params["solver_backend"] == "surrogate"
+        and "fork" in mp.get_all_start_methods()
+    ):
+        subproc_start_method = "fork"
+        shared_worker_models = models
+
     # 環境の作成
     if args.n_envs > 1:
         # SubprocVecEnv用の関数のリストを作成
-        env_input = [make_env(args.sbml_dir, env_params, getattr(args, 'data_log_path', None), rank=i) for i in range(args.n_envs)]
+        env_input = [
+            make_env(
+                args.sbml_dir,
+                env_params,
+                getattr(args, "data_log_path", None),
+                rank=i,
+                preloaded_models=shared_worker_models,
+            )
+            for i in range(args.n_envs)
+        ]
     else:
         # 単一環境（DummyVecEnv用）
         env_input = make_env(args.sbml_dir, env_params, getattr(args, 'data_log_path', None), rank=0)
@@ -300,11 +363,23 @@ def train_agent(args):
         batch_size=args.batch_size,
         ent_coef=args.ent_coef,
         gamma=args.gamma,
-        device='cpu',
+        device=getattr(args, 'device', 'cpu'),
         verbose=1,
         n_envs=args.n_envs,
-        tensorboard_log=args.tensorboard_log
+        tensorboard_log=args.tensorboard_log,
+        subproc_start_method=subproc_start_method,
     )
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    configuration_path = output_dir / 'cultivation_configuration.json'
+    configuration = dict(cli_options=options,
+                         environments=agent.env.env_method('get_cultivation_configuration'))
+    if configuration_path.exists():
+        if json.loads(configuration_path.read_text(encoding='utf-8')) != configuration:
+            raise ValueError('Existing output cultivation configuration differs; choose a new output directory')
+    else:
+        with configuration_path.open('x', encoding='utf-8') as config_file:
+            json.dump(configuration, config_file, indent=2, allow_nan=False)
 
     # チェックポイントから再開
     if args.resume_from:
@@ -335,9 +410,6 @@ def train_agent(args):
     )
     
     # モデルの保存
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
     model_path = output_dir / 'ppo_consortium_model.zip'
     agent.save(str(model_path))
     
@@ -348,10 +420,8 @@ def train_agent(args):
         json.dump(serializable_history, f, indent=2)
     print(f"📊 訓練履歴保存: {history_path}")
     
-    # 評価（単一環境で実行）
+    # Evaluate the trained environment with frozen normalization statistics.
     print("📊 最終評価中...")
-    eval_sim = dFBASimulator(**simulator_params)
-    eval_env = ConsortiumEnv(simulator=eval_sim, **env_params)
     results = agent.evaluate(n_episodes=args.eval_episodes)
     
     # 結果の保存
@@ -367,31 +437,15 @@ def evaluate_agent(args):
     """訓練済みエージェントを評価"""
     print("📊 評価開始")
     
-    # モデルの読み込み
-    if args.sbml_dir:
-        all_models = load_sbml_models(Path(args.sbml_dir))
-        models = select_consortium_models(all_models)
-    else:
-        models = create_mock_models()
-    
-    # 初期パラメータ
-    initial_biomass, initial_metabolites = get_initial_params(models)
-    
-    # シミュレーターのセットアップ
-    sim = dFBASimulator(
-        models=models,
-        initial_biomass=initial_biomass,
-        initial_metabolites=initial_metabolites,
-        initial_rubber=100.0,
-        volume=1.0,
-        dt=0.5
-    )
-    
-    # RL環境の作成
-    env = ConsortiumEnv(
-        simulator=sim,
-        max_time=args.max_steps * 0.1
-    )
+    options = cultivation_options(args)
+    options.update(max_time=args.max_steps * options['control_dt'],
+                   cuopt_method=getattr(args, 'cuopt_method', 'pdlp'),
+                   surrogate_dir=getattr(args, 'surrogate_dir', None),
+                   surrogate_device=getattr(args, 'surrogate_device', 'cuda'),
+                   surrogate_audit_interval=getattr(args, 'surrogate_audit_interval', 1),
+                   surrogate_objective_rtol=getattr(args, 'surrogate_objective_rtol', .02),
+                   surrogate_ood_threshold=getattr(args, 'surrogate_ood_threshold', 8.))
+    env = make_env(args.sbml_dir, options)
     
     # エージェントの読み込み
     agent = ConsortiumPPOAgent(env=env)
@@ -435,7 +489,7 @@ def main():
                              help='PPOのbatch_size')
     train_parser.add_argument('--ent-coef', type=float, default=0.01,
                              help='PPOのentropy係数')
-    train_parser.add_argument('--gamma', type=float, default=0.99,
+    train_parser.add_argument('--gamma', type=float, default=0.999,
                              help='割引率')
     train_parser.add_argument('--output-dir', type=str, default='outputs',
                              help='出力ディレクトリ')
@@ -449,12 +503,38 @@ def main():
                              help='訓練中に定期的に評価を実行')
     train_parser.add_argument('--eval-freq', type=int, default=5000,
                              help='訓練中評価の頻度')
-    train_parser.add_argument('--n-envs', type=int, default=8,
-                             help='並列環境数')
+    train_parser.add_argument('--n-envs', type=int, default=4,
+                              help='並列環境数')
+    train_parser.add_argument('--device', choices=['cpu', 'cuda', 'auto'], default='cpu',
+                              help='PPO方策の実行デバイス（環境シミュレーションは別途ソルバー設定）')
     train_parser.add_argument('--tensorboard-log', type=str, default='outputs/tensorboard',
                              help='TensorBoardのログ保存先')
     train_parser.add_argument('--linear-lr', action='store_true',
                              help='学習率の線形減衰を有効にする')
+    train_parser.add_argument('--solver-backend', choices=['glpk', 'highs', 'cuopt', 'auto', 'surrogate'], default='highs',
+                             help='FBAソルバー。cuOptはNVIDIA GPU用、autoは未導入時にGLPKへフォールバック')
+    train_parser.add_argument('--cuopt-method', choices=['barrier', 'pdlp', 'concurrent', 'dual simplex'],
+                             default='pdlp', help='cuOpt LP法。GEMでは独立行PDLP+crossoverを推奨')
+    train_parser.add_argument('--fba-mode', choices=['separate', 'joint', 'cooperative'], default=None,
+                             help='FBA構成。cooperativeは共有培地・同時交差栄養・最小共通増殖を解く')
+    train_parser.add_argument('--gpu-ids', type=str, default=None,
+                             help='並列環境に割り当てるGPU ID（例: 0,1,2）。DFBA_GPU_IDSでも指定可能')
+    train_parser.add_argument('--gpu-slots-per-device', type=int, default=1,
+                             help='1 GPUへ同時に割り当てる論理環境slot数（MIGではなくプロセス並列）')
+    train_parser.add_argument('--surrogate-dir', type=str, default=None,
+                             help='train_fba_surrogate.py が生成したartifactディレクトリ')
+    train_parser.add_argument('--surrogate-device', choices=['cpu', 'cuda', 'auto'], default='cuda',
+                             help='FBAサロゲート推論デバイス')
+    train_parser.add_argument('--surrogate-batch-window-ms', type=float, default=2.0,
+                             help='複数環境のGPU要求を束ねる最大待ち時間(ms)')
+    train_parser.add_argument('--surrogate-max-batch-size', type=int, default=64,
+                             help='GPU FBAサロゲートの最大マイクロバッチ')
+    train_parser.add_argument('--surrogate-audit-interval', type=int, default=128,
+                             help='各workerで厳密HiGHS監査を行うFBA呼出し間隔（0で無効）')
+    train_parser.add_argument('--surrogate-objective-rtol', type=float, default=0.02,
+                             help='厳密監査で許容する目的値相対誤差')
+    train_parser.add_argument('--surrogate-ood-threshold', type=float, default=8.0,
+                             help='学習分布からの標準化距離上限')
     
     # 評価モード
     eval_parser = subparsers.add_parser('evaluate', help='訓練済みエージェントを評価')
@@ -469,7 +549,31 @@ def main():
                             help='アミノ酸コスト係数')
     eval_parser.add_argument('--eval-episodes', type=int, default=10,
                             help='評価エピソード数')
-    
+    eval_parser.add_argument('--solver-backend', choices=['glpk', 'highs', 'cuopt', 'auto', 'surrogate'], default='highs',
+                            help='FBAソルバー。cuOptはNVIDIA GPU用、autoは未導入時にGLPKへフォールバック')
+    eval_parser.add_argument('--cuopt-method', choices=['barrier', 'pdlp', 'concurrent', 'dual simplex'],
+                            default='pdlp', help='cuOpt LP法')
+    eval_parser.add_argument('--fba-mode', choices=['separate', 'joint', 'cooperative'], default=None,
+                            help='FBA構成。cooperativeは共有培地・同時交差栄養・最小共通増殖を解く')
+    eval_parser.add_argument('--surrogate-dir', type=str, default=None)
+    eval_parser.add_argument('--surrogate-device', choices=['cpu', 'cuda', 'auto'], default='cuda')
+    eval_parser.add_argument('--surrogate-audit-interval', type=int, default=1,
+                            help='評価時は既定で毎回HiGHS監査')
+    eval_parser.add_argument('--surrogate-objective-rtol', type=float, default=0.02)
+    eval_parser.add_argument('--surrogate-ood-threshold', type=float, default=8.0)
+
+    for command_parser in (train_parser, eval_parser):
+        command_parser.add_argument('--consortium-profile', choices=['legacy3', 'pf-helper3', 'or16-ns21'], default='legacy3')
+        command_parser.add_argument('--physiology-config', help='JSON with explicit, uncalibrated maintenance/death assumptions')
+        command_parser.add_argument('--dynamics', choices=['legacy', 'audited', 'physiology'], default='legacy',
+                                    help='audited requires a newly trained policy and exact CPU separate FBA')
+        command_parser.add_argument('--control-dt', type=float, default=.2, help='Controller interval (hours)')
+        command_parser.add_argument('--internal-dt', type=float, default=.025, help='Maximum audited integration interval (hours)')
+        command_parser.add_argument('--initial-nh4', type=float, default=None, help='Initial NH4 (mmol/L)')
+        command_parser.add_argument('--initial-rubber', type=float, default=100., help='Initial rubber (g/L)')
+        command_parser.add_argument('--ph-target', type=float, default=None)
+        command_parser.add_argument('--observation-schema', choices=['legacy_v1', 'metabolic_v2'], default=None)
+        command_parser.add_argument('--max-specific-feed-rate', type=float, default=.1, help='audited_rates_v2 individual pump maximum (mmol/L/h)')
     args = parser.parse_args()
     
     if args.mode == 'train':
@@ -481,4 +585,15 @@ def main():
 
 
 if __name__ == '__main__':
+    # Ctrl+Cで子プロセスを確実に終了させるシグナルハンドラ
+    def _cleanup_handler(signum, frame):
+        print('\n🛑 学習を安全に停止中...')
+        # 全子プロセスにSIGTERMを送信
+        import multiprocessing
+        for p in multiprocessing.active_children():
+            p.terminate()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, _cleanup_handler)
+    signal.signal(signal.SIGTERM, _cleanup_handler)
     main()

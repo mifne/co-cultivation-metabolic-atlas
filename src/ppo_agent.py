@@ -13,6 +13,8 @@ from typing import Optional, Dict, Any, Callable
 import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
+import json
+import warnings
 
 
 class ConsortiumPPOAgent:
@@ -34,7 +36,9 @@ class ConsortiumPPOAgent:
         device: str = 'cpu',
         verbose: int = 1,
         n_envs: int = 1,  # 並列環境数
-        tensorboard_log: Optional[str] = None
+        tensorboard_log: Optional[str] = None,
+        subproc_start_method: Optional[str] = None,
+        target_kl: Optional[float] = None,
     ):
         """
         Args:
@@ -52,11 +56,16 @@ class ConsortiumPPOAgent:
             device: 'auto', 'cpu', 'cuda'
             verbose: ログレベル
             tensorboard_log: TensorBoardログの保存先
+            target_kl: 方策更新のKL停止基準。Noneは従来どおり無効。
         """
+        if not np.isfinite(gamma) or not 0.0 <= gamma <= 1.0:
+            raise ValueError('gamma must be finite in [0, 1]')
+        if target_kl is not None and (not np.isfinite(target_kl) or target_kl <= 0):
+            raise ValueError('target_kl must be positive and finite, or None')
         # --- 環境をベクトル化（並列化対応） ---
         if isinstance(env, list):
             # 関数のリストが渡された場合（SubprocVecEnv）
-            self.env = SubprocVecEnv(env)
+            self.env = SubprocVecEnv(env, start_method=subproc_start_method)
             self.n_envs = len(env)
         else:
             # 単一の環境（関数またはインスタンス）が渡された場合
@@ -65,7 +74,11 @@ class ConsortiumPPOAgent:
             self.n_envs = 1
         
         # --- 数学的安定化: VecNormalize の導入 ---
-        self.env = VecNormalize(self.env, norm_obs=True, norm_reward=True, clip_obs=10.)
+        # Reward statistics must use the same return horizon as the PPO value
+        # target. VecNormalize otherwise silently keeps its default gamma=.99.
+        self.env = VecNormalize(self.env, norm_obs=True, norm_reward=True,
+                                clip_obs=10., gamma=gamma)
+        self.policy_contract = self._read_policy_contract()
         
         self.model = PPO(
             policy='MlpPolicy',
@@ -80,13 +93,18 @@ class ConsortiumPPOAgent:
             ent_coef=ent_coef,
             vf_coef=vf_coef,
             max_grad_norm=max_grad_norm,
+            target_kl=target_kl,
             verbose=verbose,
-            device='cpu',  # 強制的にCPU
+            device=device,
             tensorboard_log=tensorboard_log,
             policy_kwargs=dict(
                 net_arch=dict(pi=[256, 256], vf=[256, 256])
             )
         )
+        # SB3 includes this attribute in every ZIP, including CheckpointCallback
+        # saves; array shape alone cannot distinguish different organisms or
+        # different physical meanings of otherwise identical control vectors.
+        self.model.cultivation_policy_contract = self.policy_contract
         
         self.training_history = {
             'episode_rewards': [],
@@ -94,6 +112,23 @@ class ConsortiumPPOAgent:
             'rubber_degradation': [],
             'diversity_scores': []
         }
+
+    def _read_policy_contract(self):
+        try:
+            contracts = self.env.env_method('get_policy_contract')
+        except AttributeError:
+            return None  # General Gym test/example environments have no contract.
+        encoded = [json.dumps(c, sort_keys=True, allow_nan=False) for c in contracts]
+        if len(set(encoded)) != 1:
+            raise ValueError('PPO environments have different cultivation policy contracts')
+        # Freeze by value: live metadata dictionaries must not mutate the
+        # checkpoint's meaning through a shared Python reference.
+        return json.loads(encoded[0])
+
+    def _assert_policy_contract_unchanged(self):
+        if self._read_policy_contract() != self.policy_contract:
+            raise ValueError('Cultivation configuration changed after policy construction; '
+                             'create a compatible policy/environment before proceeding')
     
     def train(
         self,
@@ -123,6 +158,7 @@ class ConsortiumPPOAgent:
             訓練履歴
         """
         print(f"🎓 訓練開始: {total_timesteps:,}ステップ")
+        self._assert_policy_contract_unchanged()
         
         # コールバックのリスト
         callbacks = []
@@ -186,7 +222,7 @@ class ConsortiumPPOAgent:
         行動を予測
         
         Args:
-            observation: 観測
+            observation: Saved VecNormalizeで正規化済みの観測。生観測はpredict_rawを使用。
             deterministic: 決定的な行動を選択するか
         
         Returns:
@@ -197,6 +233,11 @@ class ConsortiumPPOAgent:
             deterministic=deterministic
         )
         return action, state
+
+    def predict_raw(self, observation: np.ndarray, deterministic: bool = True):
+        """Infer from an unnormalized Gym observation without updating statistics."""
+        normalized = self.env.normalize_obs(np.asarray(observation))
+        return self.predict(normalized, deterministic=deterministic)
     
     def save(self, path: str):
         """
@@ -206,8 +247,13 @@ class ConsortiumPPOAgent:
             path: 保存先パス
         """
         save_path = Path(path)
+        self._assert_policy_contract_unchanged()
         save_path.parent.mkdir(parents=True, exist_ok=True)
         self.model.save(str(save_path))
+        if self.policy_contract is not None:
+            save_path.with_suffix('.contract.json').write_text(
+                json.dumps(self.policy_contract, indent=2, sort_keys=True, allow_nan=False),
+                encoding='utf-8')
         
         # VecNormalizeの統計を保存 (拡張子 .pkl)
         stats_path = str(save_path.with_suffix('.pkl'))
@@ -224,10 +270,9 @@ class ConsortiumPPOAgent:
             path: モデルファイルパス
         """
         # 現在のTensorBoardログパスを保持
+        self._assert_policy_contract_unchanged()
         current_tb_log = self.model.tensorboard_log
-        
-        # モデルの読み込み (現在のenvを維持)
-        self.model = PPO.load(path, env=self.env, tensorboard_log=current_tb_log)
+        current_device = self.model.device
         
         # VecNormalizeの統計を読み込み
         path_obj = Path(path)
@@ -242,7 +287,24 @@ class ConsortiumPPOAgent:
         elif checkpoint_stats_path.exists():
             load_path = checkpoint_stats_path
         else:
-            load_path = None
+            raise FileNotFoundError(
+                f'Saved VecNormalize statistics are required for {path}; '
+                f'expected {stats_path} or {checkpoint_stats_path}')
+
+        from stable_baselines3.common.save_util import load_from_zip_file
+        data, _, _ = load_from_zip_file(path, device='cpu')
+        saved_contract = data.get('cultivation_policy_contract')
+        if saved_contract is None and self.policy_contract is not None:
+            if self.policy_contract['control']['schema'] != 'legacy_v1':
+                raise ValueError('Checkpoint has no cultivation contract; cannot use it with audited controls')
+            warnings.warn('Legacy checkpoint has no cultivation contract; organism and control semantics '
+                          'cannot be verified. Use only its original legacy environment.', RuntimeWarning)
+        elif saved_contract != self.policy_contract:
+            raise ValueError('Checkpoint cultivation contract differs from this environment')
+
+        # Load only after checking both normalization and physical semantics.
+        self.model = PPO.load(path, env=self.env, tensorboard_log=current_tb_log,
+                              device=current_device)
 
         if load_path:
             # 現在の venv を使って VecNormalize をロード
@@ -348,37 +410,48 @@ class ConsortiumPPOAgent:
             評価結果の統計
         """
         print(f"📊 評価: {n_episodes}エピソード")
+        self._assert_policy_contract_unchanged()
+        if type(n_episodes) is not int or n_episodes < 1:
+            raise ValueError('n_episodes must be a positive integer')
         
         episode_rewards = []
         episode_lengths = []
         rubber_degradations = []
         
-        for episode in range(n_episodes):
-            obs = self.env.reset()
-            done = False
-            episode_reward = 0
-            episode_length = 0
-            initial_rubber = None
-            
-            while True:
-                action, _ = self.predict(obs, deterministic=deterministic)
-                obs, reward, done, info = self.env.step(action)
-                
-                # ベクトル環境の最初の1つのみを集計
-                episode_reward += reward[0]
-                episode_length += 1
-                
-                if initial_rubber is None:
-                    initial_rubber = info[0].get('rubber_remaining', 0)
-                
-                if done[0]:
-                    final_rubber = info[0].get('rubber_remaining', 0)
-                    degradation = (initial_rubber - final_rubber) / initial_rubber if initial_rubber > 0 else 0
-                    rubber_degradations.append(degradation)
-                    break
-            
-            episode_rewards.append(episode_reward)
-            episode_lengths.append(episode_length)
+        old_training, old_norm_reward = self.env.training, self.env.norm_reward
+        self.env.training, self.env.norm_reward = False, False
+        try:
+            for episode in range(n_episodes):
+                obs = self.env.reset()
+                episode_reward = 0.
+                episode_length = 0
+                try:
+                    initial_rubber = float(self.env.get_attr('initial_rubber', indices=[0])[0])
+                except AttributeError:
+                    initial_rubber = None
+                while True:
+                    action, _ = self.predict(obs, deterministic=deterministic)
+                    obs, reward, done, info = self.env.step(action)
+                    # Aggregate one declared lane; never read state after the
+                    # VecEnv terminal auto-reset for an endpoint measurement.
+                    episode_reward += float(reward[0])
+                    episode_length += 1
+                    if initial_rubber is None:
+                        if 'initial_rubber_g_l' in info[0]:
+                            initial_rubber = float(info[0]['initial_rubber_g_l'])
+                        elif 'total_rubber_degraded' in info[0] and 'rubber_remaining' in info[0]:
+                            initial_rubber = float(info[0]['rubber_remaining'] + info[0]['total_rubber_degraded'])
+                    if done[0]:
+                        final_rubber = info[0].get('rubber_remaining')
+                        degradation = ((initial_rubber - float(final_rubber)) / initial_rubber
+                                       if initial_rubber is not None and initial_rubber > 0 and final_rubber is not None
+                                       else float('nan'))
+                        rubber_degradations.append(degradation)
+                        break
+                episode_rewards.append(episode_reward)
+                episode_lengths.append(episode_length)
+        finally:
+            self.env.training, self.env.norm_reward = old_training, old_norm_reward
         
         results = {
             'mean_reward': np.mean(episode_rewards),

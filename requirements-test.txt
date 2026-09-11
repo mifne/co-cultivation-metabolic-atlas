@@ -1,0 +1,2 @@
+# Test runner for the repository's unit and integration tests.
+pytest>=9.1,<10

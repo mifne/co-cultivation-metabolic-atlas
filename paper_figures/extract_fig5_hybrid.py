@@ -41,11 +41,11 @@ def make_env():
 def extract_deterministic():
     """連続God-mode制御（決定論的）: ゴム分解→PHAの最大化"""
     env = DummyVecEnv([make_env])
-    vecnorm_path = "outputs/refined_models/godmode/godmode_final_refined_vecnormalize.pkl"
+    vecnorm_path = "outputs/checkpoints/ppo_godmode_v3_vecnormalize_550000_steps.pkl"
     env = VecNormalize.load(vecnorm_path, env)
     env.training   = False
     env.norm_reward = False
-    model = PPO.load("outputs/refined_models/godmode/godmode_final_refined.zip", env=env)
+    model = PPO.load("outputs/checkpoints/ppo_godmode_v3_550000_steps.zip", env=env)
 
     obs  = env.reset()
     done = False
@@ -76,11 +76,11 @@ def extract_deterministic():
 def extract_hybrid():
     """ハイブリッド制御: 336h後に窒素飢餓を誘導してPHA最大化"""
     env = DummyVecEnv([make_env])
-    vecnorm_path = "outputs/refined_models/godmode/godmode_final_refined_vecnormalize.pkl"
+    vecnorm_path = "outputs/checkpoints/ppo_godmode_v3_vecnormalize_550000_steps.pkl"
     env = VecNormalize.load(vecnorm_path, env)
     env.training   = False
     env.norm_reward = False
-    model = PPO.load("outputs/refined_models/godmode/godmode_final_refined.zip", env=env)
+    model = PPO.load("outputs/checkpoints/ppo_godmode_v3_550000_steps.zip", env=env)
 
     obs  = env.reset()
     done = False
