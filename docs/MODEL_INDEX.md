@@ -23,15 +23,24 @@
 - **ゲノム:** NCBI AP019371.1
 - **改修スクリプト:** `scripts/modify_or16_model.py`
 - **主要な変更点:**
-    - **Lcp経路の実装**: 遺伝子 `ACTI_28730`, `ACTI_28740`, `ACTI_37800` を紐付け。
-      > **要確認(2026-09-12)**: OR16のlcp遺伝子を直接特徴づけた文献
-      > (Gibu et al. 2020, *Appl Microbiol Biotechnol* 104:7367-7376,
-      > https://doi.org/10.1007/s00253-020-10700-1)は、tBLASTn相同性検索により
-      > lcp1=`ACTI_59630`, lcp2=`ACTI_59640`, lcp3=`ACTI_69520`と報告しており、
-      > 上記の`ACTI_28730`/`ACTI_28740`/`ACTI_37800`と一致しない。ゲノムアノテーション
-      > 版の違いによる座標のずれか、単純な誤記載かは未確認。
-      > docs/LCP_ROX_ACTIVITY_ASSAY_PROTOCOL_20260911.docxの実験に着手する前に、
-      > どちらが現行モデル・現行アノテーションと対応するか確認し、本記述を訂正すること。
+    - **Lcp経路の実装**: 遺伝子 `G_ACTI_59630`(lcp1), `G_ACTI_59640`(lcp2),
+      `G_ACTI_69520`(lcp3) を反応`R_LCP`(Lcp-catalysed oxidative endo-cleavage of
+      natural rubber)へOR条件で紐付け。この3遺伝子はOR16のlcp遺伝子を直接特徴づけた
+      文献(Gibu et al. 2020, *Appl Microbiol Biotechnol* 104:7367-7376,
+      https://doi.org/10.1007/s00253-020-10700-1)のtBLASTn相同性検索結果
+      (lcp1=ACTI_59630, lcp2=ACTI_59640, lcp3=ACTI_69520)と一致する。
+      > **訂正記録(2026-09-12)**: 本節は従前`ACTI_28730`,`ACTI_28740`,`ACTI_37800`と
+      > 記載していたが、これは誤りだった。実際のSBMLモデル
+      > (models/sbml/final_consortium/Actinoplanes_sp_OR16_lcp.xml)を全反応にわたって
+      > 監査した結果、`ACTI_28730`等はゲノムアノテーション上は実在する
+      > (locus_tag/protein=hypothetical protein)ものの、`fbc:geneProduct`として
+      > "lcp1/2/3"と命名されているだけで、**どの反応の`geneProductAssociation`にも
+      > 使われていない孤立エントリ**だった。実際に`R_LCP`反応を駆動しているのは
+      > `ACTI_59630`/`ACTI_59640`/`ACTI_69520`(Gibu et al. 2020と一致、遺伝子座番号も
+      > lcp1・lcp2が隣接[オペロン]・lcp3が離れているという同論文の記述と整合)である。
+      > **結論: モデルの反応ロジックは正しい文献に基づいて実装済み。本ドキュメントの
+      > 記載が古かった/誤っていただけ。** `ACTI_28730`/`ACTI_28740`/`ACTI_37800`の
+      > 孤立した`geneProduct`エントリをSBMLから削除するかは別途判断すること。
     - **反応トポロジー**: 天然ゴム (`rubber_e`) をオリゴマー (`rubber_fragment_e`) へエンド型切断し、同時に資化する経路を構築。
     - **生化学的補正 (OxiAB)**: ゴム切断後のアルデヒドを酸化する OxiAB ホモログ (`ISOP_ALDH`) の電子受容体を、誤った $NAD^+$ から**科学的に正しいシトクロムc (`ficytc_c`) へ修正**。これにより呼吸鎖と連動し、致死的なレドックスアンバランス（過剰還元の蓄積）を解消。
     - **質量・電子バランス補正**: ベータ酸化を一括で表現する `ISOP_ACS` 反応において、CoAの消費不足による質量保存の違反（FBAによるペナルティ）を修正し、$7 NADH$ / $7 FADH_2$ の生成を厳密に定義。
