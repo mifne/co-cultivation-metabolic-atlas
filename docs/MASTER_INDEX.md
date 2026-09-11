@@ -19,6 +19,7 @@
 - [CALIBRATION_EXPERIMENT_PROTOCOL_20260911.docx](CALIBRATION_EXPERIMENT_PROTOCOL_20260911.docx): 未校正パラメータを実測するための湿式実験プロトコル。
 - [LCP_ROX_ACTIVITY_ASSAY_PROTOCOL_20260911.docx](LCP_ROX_ACTIVITY_ASSAY_PROTOCOL_20260911.docx): ゴム分解速度定数(OR16のLcp・NS21のRoxA/RoxB活性)実測プロトコル。先行研究の直接引用・第3版(真の最終版)。
 - [MAINTENANCE_ATP_PROTOCOL_20260912.docx](MAINTENANCE_ATP_PROTOCOL_20260912.docx): OR16・NS21(Piscinibacter gummiphilus)・Pfの維持ATP要求量(NGAM)実測プロトコル。ケモスタット/Pirtプロット法、先行研究の直接引用。
+- [OXYGEN_PARTITIONING_PROTOCOL_20260912.docx](OXYGEN_PARTITIONING_PROTOCOL_20260912.docx): polymer_oxygen_fraction・polymer_oxygen_half_saturation実測プロトコル。ゴム分解オキシゲナーゼのKm(O2)、全菌体呼吸のKs(O2)、培養系全体でのOUR分配の測定手順。
 
 ## ⚙️ 3. システム・アーキテクチャ ([SYSTEM_ARCHITECTURE.md](SYSTEM_ARCHITECTURE.md))
 - 多段階代謝シナジー（Lcp $\rightarrow$ Rox $\rightarrow$ PHA）の物理的定義。
