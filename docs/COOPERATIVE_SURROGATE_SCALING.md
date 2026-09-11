@@ -1,5 +1,12 @@
 # Cooperative FBA surrogate: size and validity requirements
 
+> **Note (2026-09-11)**: This document's reaction counts and sizing analysis were
+> measured for the WCFS1-based 3-species configuration (OR16, NS21, *L. plantarum*).
+> The third species has since changed to *P. freudenreichii* (Pf); see
+> [PROJECT_MANAGEMENT.md](PROJECT_MANAGEMENT.md) Phase D. The sizing methodology
+> remains valid, but the specific reaction/dictionary-size figures below have not
+> been re-measured against the Pf model.
+
 ## Finding
 
 The previous default of 512 exact labels is too small for this three-member

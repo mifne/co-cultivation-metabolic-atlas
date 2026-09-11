@@ -2,6 +2,12 @@
 
 Date: 2026-09-01
 
+> **Note (2026-09-11)**: This report's dictionary was built for the WCFS1-based
+> 3-species configuration. The third species has since changed to
+> *P. freudenreichii* (Pf); see [PROJECT_MANAGEMENT.md](PROJECT_MANAGEMENT.md)
+> Phase D. The dictionary-construction methodology remains valid, but the
+> WCFS1-specific labels below have not been rebuilt against the Pf model.
+
 ## Why 32,768
 
 32,768 (`2^15`) was selected as an engineering production tier, not derived as

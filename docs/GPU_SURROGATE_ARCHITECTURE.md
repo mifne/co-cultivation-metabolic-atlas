@@ -1,5 +1,12 @@
 # GPU FBA surrogate architecture
 
+> **2026-09-11時点の注記**: 本書のベンチマークは *L. plantarum* (WCFS1) を第3菌種と
+> していた当時の3 GEM構成で測定されたものです。現行の第3菌種は
+> *P. freudenreichii* (Pf) に変更されており(詳細は
+> [PROJECT_MANAGEMENT.md](PROJECT_MANAGEMENT.md) Phase D参照)、GPUサロゲートの
+> アーキテクチャ・手法自体は菌種に依存せず有効ですが、下記のL. plantarum固有の
+> 数値(反応数・実行時間等)はPfモデルで再測定されていません。
+
 ## 結論
 
 このプロジェクトの3 GEM（OR16、NS21、*L. plantarum*）は、1件ずつの

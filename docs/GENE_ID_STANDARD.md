@@ -1,4 +1,10 @@
-# 三種GEMのGene ID標準
+# コンソーシアムGEMのGene ID標準
+
+> **2026-09-11時点の注記**: 本書のWCFS1に関する記述(Gene ID正規化の実施記録、
+> GeneProduct件数等)は *L. plantarum* (WCFS1) を第3菌種としていた当時の記録です。
+> 現行の第3菌種は *P. freudenreichii* (Pf) に変更されています
+> ([PROJECT_MANAGEMENT.md](PROJECT_MANAGEMENT.md) Phase D参照)。Gene ID標準の
+> 方針自体はPfにも適用できますが、Pf向けの正規化作業はまだ実施・記録されていません。
 
 ## 結論
 

@@ -15,16 +15,35 @@
 - **Phase C: 物理的厳密性の追求**:
     - 改善: シミュレータの炭素収支を 0.1% 以下の精度に向上。
     - 成果: 質量保存則に基づく、真に科学的なシミュレーション環境の構築。
+- **Phase D: 第3菌種の変更 (2026年9月)**:
+    - 決定: *L. plantarum* (WCFS1) を不採用とし、*Propionibacterium freudenreichii* (Pf) を
+      第3菌種として導入。
+    - 理由: 計算研究(dFBA)でWCFS1追加の明確なメリットが確認できなかった一方、
+      乳酸からプロピオン酸を系内供給できるPfは、NS21のPHBV組成(3HV)支援という
+      明確な代謝的役割を持つことが分かったため。
+    - 成果と限界: 3種の優位性は酸素供給条件に対して非単調(条件依存)であることが
+      判明したが、すべて計算上の結果であり未校正パラメータに依存する。実験的検証は
+      未実施。詳細は [OXYGEN_SCHEDULE_THIRD_SPECIES_20260910.md](OXYGEN_SCHEDULE_THIRD_SPECIES_20260910.md)、
+      [THREE_SPECIES_COEXISTENCE_SUMMARY_20260911.docx](THREE_SPECIES_COEXISTENCE_SUMMARY_20260911.docx)を参照。
+    - WCFS1を前提に作成されていた実験計画文書(FEED_VALIDATION_EXPERIMENT.md、
+      THREE_PUMP_FEED_STRATEGY.md、ONE_L_JAR_FERMENTER_CONTROL_DESIGN.md、
+      RL_FEDBATCH_COCULTURE_MILESTONES.md、WCFS1_COEXISTENCE_OPTIMIZATION.md)は
+      2026-09-11にリポジトリから削除した(git履歴には残る)。Pfベースの校正実験計画は
+      [CALIBRATION_EXPERIMENT_PROTOCOL_20260911.docx](CALIBRATION_EXPERIMENT_PROTOCOL_20260911.docx)
+      として新規に作成した。
 
 ---
 
-## 2. コンソーシアム選定の根拠
+## 2. コンソーシアム選定の根拠(現行、2026年9月時点)
 
 | 微生物名 | 役割 | 選定理由 |
 | :--- | :--- | :--- |
 | **OR16** | The Engine | 強力な Lcp 酵素系による高分子ゴムの初期分解能。 |
 | **NS21** | The Converter | Rox 酵素系による中間体資化と、高い PHA 蓄積能力の共存。 |
-| **L. plantarum** | The Buffer | 複雑なコンソーシアムにおけるアミノ酸・ビタミンの安定供給。 |
+| **P. freudenreichii (Pf)** | The Modulator | 乳酸からのプロピオン酸供給によるPHBV組成(3HV)支援。価値は酸素供給条件に依存(条件依存的)。 |
+
+旧構成では *L. plantarum* (WCFS1) を「The Buffer」として採用していましたが、Phase D
+(上記)で不採用となりました。
 
 ---
 

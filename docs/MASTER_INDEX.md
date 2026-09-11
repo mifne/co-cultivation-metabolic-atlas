@@ -3,14 +3,20 @@
 本プロジェクト（天然ゴム分解・PHA変換コンソーシアム）の全記録を、整理・集約された以下の項目で管理しています。
 
 ## 🗺️ 1. プロジェクト管理・戦略 ([PROJECT_MANAGEMENT.md](PROJECT_MANAGEMENT.md))
-- プロジェクトの変遷史（4種から3種への進化）。
-- コンソーシアム（OR16, NS21, LP）の選定根拠と役割分担。
+- プロジェクトの変遷史（4種→3種(LP)→3種(Pf)への進化）。
+- コンソーシアム（OR16, NS21, Pf）の選定根拠と役割分担。
 - 実装ロードマップと現在の開発ステータス。
 
 ## 🧬 2. 代謝モデル・インデックス ([MODEL_INDEX.md](MODEL_INDEX.md))
 - **【最重要】** 各微生物モデルの由来（ゲノム）と改修履歴。
 - 改修スクリプト（Lcp/Rox経路の実装）との紐付け。
 - 科学的整合性の検証ステータス。
+- 現行の第3菌種(P. freudenreichii)と不採用となったL. plantarumの経緯。
+
+## 🧪 2.5 3種共存の生物学的知見・実験計画
+- [OXYGEN_SCHEDULE_THIRD_SPECIES_20260910.md](OXYGEN_SCHEDULE_THIRD_SPECIES_20260910.md): 酸素供給条件と3種価値の研究(最新・最も整理された比較)。
+- [THREE_SPECIES_COEXISTENCE_SUMMARY_20260911.docx](THREE_SPECIES_COEXISTENCE_SUMMARY_20260911.docx): 3種共存に関するこれまでの知見・新規性評価・校正パラメータの統合報告書。
+- [CALIBRATION_EXPERIMENT_PROTOCOL_20260911.docx](CALIBRATION_EXPERIMENT_PROTOCOL_20260911.docx): 未校正パラメータを実測するための湿式実験プロトコル。
 
 ## ⚙️ 3. システム・アーキテクチャ ([SYSTEM_ARCHITECTURE.md](SYSTEM_ARCHITECTURE.md))
 - 多段階代謝シナジー（Lcp $\rightarrow$ Rox $\rightarrow$ PHA）の物理的定義。
@@ -45,5 +51,6 @@
 - **[ULTIMATE_SYSTEM_PROOF.png](ULTIMATE_SYSTEM_PROOF.png)**: 代謝シナジーと AI 制御を多角的に可視化した最終証明図表。
 
 ---
-**現在の状況**: 全主要開発フェーズを完了し、メンテナンスおよびコードベースの最適化フェーズにあります。
+**現在の状況**: OR16+NS21の2種基盤開発は完了し、P. freudenreichiiを加えた3種共存の
+価値評価・GPU加速dFBA基盤の構築・湿式実験での校正に向けた準備を並行して進めています。
 変更を加えた際は、必ず `pytest tests/test_project_integrity.py` を実行し、整合性を担保してください。

@@ -1,5 +1,11 @@
 # システム・アーキテクチャ仕様書 (SYSTEM_ARCHITECTURE.md)
 
+> **2026-09-11時点の注記**: 本書は *L. plantarum* (WCFS1) を第3菌種としていた時期の
+> システム記述です。現行の第3菌種は *P. freudenreichii* (Pf) に変更されており
+> ([PROJECT_MANAGEMENT.md](PROJECT_MANAGEMENT.md) Phase D参照)、シミュレータ自体も
+> physiology_dfba/audited_dfba系へ大きく改修されています。下記の「L. plantarumによる
+> 代謝バッファー効果」等、種固有の記述は現行構成にそのまま当てはまりません。
+
 本プロジェクトの核心である「多段階代謝シナジー」および「dFBA-RL 統合制御」の技術的定義を記述します。
 
 ## 1. 代謝シナジーの物理的・生化学的定義

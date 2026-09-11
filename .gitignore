@@ -55,3 +55,4 @@ models/sbml/backup/
 # OS
 .DS_Store
 Thumbs.db
+~$*.docx

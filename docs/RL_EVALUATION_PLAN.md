@@ -1,5 +1,12 @@
 # 強化学習・dFBA環境 科学的評価計画書 (Scientific Evaluation Plan)
 
+> **2026-09-11時点の注記**: 本書は *L. plantarum* (WCFS1) を第3菌種としていた時期の
+> 評価計画です。現行の第3菌種は *P. freudenreichii* (Pf) に変更されています
+> ([PROJECT_MANAGEMENT.md](PROJECT_MANAGEMENT.md) Phase D参照)。評価の枠組み(第一原理・
+> 動態・制御理論の観点)自体は現行構成にも有効ですが、「II-C: BS・緩衝フィードバック
+> ループ」はL. plantarum固有の評価項目であり、Pf体制では代わりに乳酸→プロピオン酸
+> →3HV供給経路の検証に置き換える必要があります。
+
 本ドキュメントは、天然ゴム分解・PHA変換コンソーシアムにおける dFBA-RL 統合シミュレーション環境が、トップジャーナル（Nature Biotechnology, Metabolic Engineering等）の審査に耐えうる科学的妥当性を持つかを評価するための基準を定めます。
 
 ## I. 第一原理とメカニズムの厳密性 (First Principles & Mechanistic Rigor)
