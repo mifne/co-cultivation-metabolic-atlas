@@ -44,7 +44,10 @@ mamba run -n co-cultivation pytest tests/test_project_integrity.py
 物質収支・全反応境界を検査するGPU辞書サロゲートを複数環境で共有できます。
 分布外状態は厳密HiGHSへ戻し、最終科学評価もHiGHSで行います。構成、RTX 4060の
 測定値、実行コマンドは
-[GPU_SURROGATE_ARCHITECTURE.md](docs/GPU_SURROGATE_ARCHITECTURE.md)を参照してください。
+[cooperative_gpu_surrogate.md](docs/cooperative_gpu_surrogate.md)を参照してください
+(2026-09-11時点でPf構成の精度認定は未達、常にCPU HiGHSへフォールバックします)。
+関連するGPU高速化開発の全記録は[docs/MASTER_INDEX.md](docs/MASTER_INDEX.md)の
+「GPU高速化関連ドキュメント」を参照してください。
 
 ### 4. 3種コンソーシアムの共生成立性監査
 

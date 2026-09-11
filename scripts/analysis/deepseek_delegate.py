@@ -194,8 +194,9 @@ def delegate(
         data = _call_openrouter(payload, api_key, timeout)
         choice = data["choices"][0]
         finish_reason = choice.get("finish_reason")
-        content_len = len(choice["message"]["content"])
-        if finish_reason == "stop" or attempt > max_retries:
+        content = choice["message"].get("content") or ""
+        content_len = len(content)
+        if (finish_reason == "stop" and content_len > 0) or attempt > max_retries:
             break
         print(
             f"[{label}] attempt {attempt}: finish_reason={finish_reason}, "
@@ -205,7 +206,12 @@ def delegate(
         time.sleep(2 * attempt)
 
     choice = data["choices"][0]
-    content = choice["message"]["content"]
+    content = choice["message"].get("content") or ""
+    if not content:
+        raise RuntimeError(
+            f"[{label}] empty content after {max_retries + 1} attempts "
+            f"(finish_reason={finish_reason}); raw response: {json.dumps(data)[:2000]}"
+        )
     usage = data.get("usage", {})
     native_finish_reason = choice.get("native_finish_reason")
 

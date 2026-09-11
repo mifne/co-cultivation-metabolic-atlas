@@ -22,7 +22,8 @@
 - 多段階代謝シナジー（Lcp $\rightarrow$ Rox $\rightarrow$ PHA）の物理的定義。
 - dFBA-RL 統合制御ループの仕組み。
 - 質量収支および科学的妥当性の証明。
-- [GPU_SURROGATE_ARCHITECTURE.md](GPU_SURROGATE_ARCHITECTURE.md): 複数環境を束ねるGPU FBA辞書、厳密フォールバック、RTX 4060受入試験。
+- [cooperative_gpu_surrogate.md](cooperative_gpu_surrogate.md): 複数環境を束ねるGPU FBA辞書、厳密フォールバック、RTX 4060受入試験、Pf構成での認定状況(2026-09-11時点で未認定)。
+- GPU加速dFBA/LPソルバー開発の詳細記録は2026-09-11に57件から15件へ統合された。一覧は本書末尾の「GPU高速化関連ドキュメント」を参照。
 
 ## 🧪 4. 科学的評価基準 ([RL_EVALUATION_PLAN.md](RL_EVALUATION_PLAN.md))
 - 強化学習環境および dFBA シミュレーターの科学的妥当性をトップジャーナル水準で評価するための厳密な計画と基準。
@@ -49,6 +50,28 @@
 - **[FINAL_CONSORTIUM_REPORT.md](FINAL_CONSORTIUM_REPORT.md)**: 学習結果の要約、分解率・PHA収率の最終報告およびシミュレーションデータ詳細。
 - **[FINAL_MASS_BALANCE_PROOF.png](FINAL_MASS_BALANCE_PROOF.png)**: 質量収支誤差 0.1% 未満を証明する決定的なグラフ。
 - **[ULTIMATE_SYSTEM_PROOF.png](ULTIMATE_SYSTEM_PROOF.png)**: 代謝シナジーと AI 制御を多角的に可視化した最終証明図表。
+
+## ⚙️ 6. GPU高速化関連ドキュメント(2026-09-11に57件→15件へ統合)
+
+GPU加速dFBA/LPソルバー開発の詳細記録。いずれも「計画→結果」または同一テーマの複数回試行を時系列で統合し、末尾に構成元ファイルを明記している。
+
+- [cooperative_gpu_surrogate.md](cooperative_gpu_surrogate.md): 辞書ベースGPUサロゲート(32,768候補辞書、ニューラル順位付け、QP投影)。CPU比2.6〜2.8倍高速だがPHA精度1%基準は未達成。
+- [gpu_hybrid_lp.md](gpu_hybrid_lp.md): 検証付きGPU基底辞書+CPU再最適化のハイブリッド方式。
+- [gpu_batch_speed_optimization.md](gpu_batch_speed_optimization.md): GPUバッチ内点法のホットタイム最適化試行。CPU超えは未達。
+- [gpu_ipm_stability.md](gpu_ipm_stability.md): GPU内点法の数値安定性修正とCPU比較。
+- [dataflow_acceleration.md](dataflow_acceleration.md): dFBA全体のデータフロー律速分析と非同期パイプライン化。
+- [gnn_gru_supervised_correction.md](gnn_gru_supervised_correction.md): GNN+GRUによるLP初期解予測。前解方式を上回れず。
+- [compact_gpu_acceleration.md](compact_gpu_acceleration.md): コンパクト基底辞書/低次元制限表によるGPU LP解法。
+- [amn_guided_acceleration.md](amn_guided_acceleration.md): AMN(Faure et al. 2023)に触発されたニューラル初期基底選択。
+- [gpu_literature_refinement.md](gpu_literature_refinement.md): 論文知見に基づくGPU機構層改良と目的関数忠実度診断。
+- [ppo_accuracy_speed.md](ppo_accuracy_speed.md): PPO学習に必要な精度とGPU数値層の安定収束の分離設計。
+- [cpu_baseline_fairness.md](cpu_baseline_fairness.md): GPU速度主張の前提となるCPUベンチマーク条件の監査。
+- [gpu_device_qualification.md](gpu_device_qualification.md): デバイスピボット+LU再利用版GPUソルバーの回帰検証。
+- [gpu_speed_priority_plan.md](gpu_speed_priority_plan.md): 高速化優先順位変更の経緯と次期アーキテクチャ設計。
+- [gpu_cuopt_backend.md](gpu_cuopt_backend.md): NVIDIA cuOptをFBAバックエンドとして使うアダプタ設計と既知の制約。
+- [gpu_stream_partition.md](gpu_stream_partition.md): CUDAストリーム分割の設計案(実装・実測は未実施)。
+
+一部の試行は限定条件下でCPU HiGHSより高速(例: cooperative_gpu_surrogateの狭い条件で2.6〜7倍)だが、**いずれも科学的認定基準(24時間PHA相対誤差1%以下等)を満たしておらず、2026-09-11時点で最終評価・本番学習に昇格したGPU近似は存在しない**(常にCPU HiGHSへフォールバック)。
 
 ---
 **現在の状況**: OR16+NS21の2種基盤開発は完了し、P. freudenreichiiを加えた3種共存の
