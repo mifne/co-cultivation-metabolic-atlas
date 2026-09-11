@@ -96,6 +96,7 @@ class DelegateResult:
     native_finish_reason: str | None
     out_path: Path | None
     input_chars: int
+    annotations: list | None = None
 
 
 def _resolve_files(patterns: list[str]) -> list[Path]:
@@ -154,23 +155,31 @@ def delegate(
     timeout: int = 900,
     max_retries: int = 2,
     claude_model: str = DEFAULT_CLAUDE_MODEL,
+    allow_no_files: bool = False,
 ) -> DelegateResult:
     """Send `files` + `task_prompt` to DeepSeek V4 Flash and return the result.
 
     Retries once (by default) if the response looks truncated (finish_reason
     is not "stop"), since OpenRouter provider routing occasionally returns a
     short/incomplete response for large prompts.
+
+    Pass `model="deepseek/deepseek-v4-flash:online"` to enable OpenRouter's
+    web-search plugin (real search, real URLs) - useful for literature-backed
+    work. The response's `annotations` (url_citation entries with title/url/
+    quoted content) are appended to the saved output under a "## 引用元"
+    section so real citations aren't lost. Set `allow_no_files=True` for a
+    pure web-search prompt with no local files to read.
     """
     api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
         raise SystemExit("OPENROUTER_API_KEY is not set in the environment")
 
-    paths = _resolve_files(files)
-    if not paths:
+    paths = _resolve_files(files) if files else []
+    if not paths and not allow_no_files:
         raise SystemExit("No input files resolved; nothing to send to DeepSeek")
 
     file_text = _read_files(paths)
-    user_content = f"{task_prompt}\n\n{file_text}"
+    user_content = f"{task_prompt}\n\n{file_text}" if file_text else task_prompt
     input_chars = len(system_prompt) + len(user_content)
 
     payload = {
@@ -214,6 +223,7 @@ def delegate(
         )
     usage = data.get("usage", {})
     native_finish_reason = choice.get("native_finish_reason")
+    annotations = choice["message"].get("annotations") or []
 
     prompt_tokens = usage.get("prompt_tokens", 0)
     completion_tokens = usage.get("completion_tokens", 0)
@@ -252,8 +262,19 @@ def delegate(
             f"deepseek_cost={deepseek_cost:.5f} "
             f"claude_{claude_model}_equivalent_cost={claude_equivalent_cost:.5f} -->\n\n"
         )
-        out_path_resolved.write_text(header + content, encoding="utf-8")
-        print(f"[{label}] wrote {out_path_resolved} ({len(content)} chars)")
+        body = header + content
+        if annotations:
+            cite_lines = ["\n\n---\n\n## 引用元 (web検索, url_citation)\n"]
+            for i, ann in enumerate(annotations, 1):
+                uc = ann.get("url_citation", {})
+                cite_lines.append(
+                    f"\n### [{i}] {uc.get('title', '(no title)')}\n"
+                    f"- URL: {uc.get('url', '')}\n"
+                    f"- 引用箇所:\n> {uc.get('content', '').strip()}\n"
+                )
+            body += "".join(cite_lines)
+        out_path_resolved.write_text(body, encoding="utf-8")
+        print(f"[{label}] wrote {out_path_resolved} ({len(content)} chars, {len(annotations)} citations)")
 
     return DelegateResult(
         content=content,
@@ -262,12 +283,17 @@ def delegate(
         native_finish_reason=native_finish_reason,
         out_path=out_path_resolved,
         input_chars=input_chars,
+        annotations=annotations,
     )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--files", nargs="+", required=True, help="File paths or glob patterns")
+    parser.add_argument("--files", nargs="*", default=[], help="File paths or glob patterns")
+    parser.add_argument(
+        "--allow-no-files", action="store_true",
+        help="Allow a pure web-search/prompt-only call with no local files",
+    )
     parser.add_argument("--task-file", help="Path to a text file containing the task prompt")
     parser.add_argument("--task", help="Inline task prompt (alternative to --task-file)")
     parser.add_argument("--out", required=True, help="Output path for the extraction")
@@ -299,6 +325,7 @@ def main() -> None:
         max_tokens=args.max_tokens,
         temperature=args.temperature,
         claude_model=args.claude_model,
+        allow_no_files=args.allow_no_files,
     )
 
 
