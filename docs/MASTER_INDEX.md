@@ -73,6 +73,8 @@ GPU加速dFBA/LPソルバー開発の詳細記録。いずれも「計画→結�
 
 一部の試行は限定条件下でCPU HiGHSより高速(例: cooperative_gpu_surrogateの狭い条件で2.6〜7倍)だが、**いずれも科学的認定基準(24時間PHA相対誤差1%以下等)を満たしておらず、2026-09-11時点で最終評価・本番学習に昇格したGPU近似は存在しない**(常にCPU HiGHSへフォールバック)。
 
+根本原因は「後段CPU完了待ち」(GPU計算後のホスト側dFBA状態更新・認証)が全体時間の過半(データフロー解析で54.3%)を占めていたこと。改善方針は[CPU_BOTTLENECK_IMPROVEMENT_PLAN_20260911.md](CPU_BOTTLENECK_IMPROVEMENT_PLAN_20260911.md)を参照。
+
 ---
 **現在の状況**: OR16+NS21の2種基盤開発は完了し、P. freudenreichiiを加えた3種共存の
 価値評価・GPU加速dFBA基盤の構築・湿式実験での校正に向けた準備を並行して進めています。
