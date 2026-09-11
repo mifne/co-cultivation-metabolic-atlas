@@ -231,6 +231,21 @@ zero-face証明のPython再走査を1.968秒→0.121秒へ削減。二次map構�
 
 ---
 
+## 参考文献
+
+本プロジェクトの設計・検討にあたり、以下の文献を参考とした(出典: DATAFLOW_ACCELERATION_PLAN_20260905.md Revision 37)。これらの文献の理論・手法を本GEM系にそのまま適用できる保証はなく、各変更の採否は実測に基づいて判断している。GNN+GRUを用いた学習方針(フェーズ6)の直接の出発点となった。
+
+- Faure, L., et al. (2023). Neural initialization combined with mechanistic LP/QP for metabolic models. *PMC*. https://pmc.ncbi.nlm.nih.gov/articles/PMC10400647/
+  （ニューラル初期化と機構論的LP/QPの組合せ。本系における半減保証ではない。）
+- Qian, C., et al. (2024). LPのMPNN(Message Passing Neural Network)表現と近似求解. *Proceedings of Machine Learning Research*, 238. https://proceedings.mlr.press/v238/qian24a.html
+  （LPのグラフニューラルネットワーク表現と近似求解。本系の厳密LP認証・速度優位を保証しない。）
+- Gao, S., et al. (2024). IPM-LSTM: 内点法反復の学習. *NeurIPS 2024*. https://papers.nips.cc/paper_files/paper/2024/hash/de0da9c42ee713f2ceaeed7bc40c522d-Abstract-Conference.html
+  （培養時系列ではなくIPM反復自体を学習する手法。本GEM系での転用実績はない。）
+
+なお、GNN+GRU方針の初期設計(Revision 9, 2026-09-05)ではこれに先立ち、[LPのGNN表現(ICLR 2023)](https://arxiv.org/abs/2209.12288)、[FlowGAT(2024)](https://www.nature.com/articles/s41540-024-00348-2)、[学習warm-start(JMLR 2024)](https://www.jmlr.org/beta/papers/v25/23-1174.html)も参照された。
+
+---
+
 ## 構成元ファイル
 
 - `docs/DATAFLOW_ACCELERATION_PLAN_20260905.md` (計画: 2026-09-05 ~ 09-08, Rev 1–44)
