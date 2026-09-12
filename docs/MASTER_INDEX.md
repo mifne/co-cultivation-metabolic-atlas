@@ -21,6 +21,7 @@
 - [MAINTENANCE_ATP_PROTOCOL_20260912.docx](MAINTENANCE_ATP_PROTOCOL_20260912.docx): OR16・NS21(Piscinibacter gummiphilus)・Pfの維持ATP要求量(NGAM)実測プロトコル。ケモスタット/Pirtプロット法、先行研究の直接引用。
 - [OXYGEN_PARTITIONING_PROTOCOL_20260912.docx](OXYGEN_PARTITIONING_PROTOCOL_20260912.docx): polymer_oxygen_fraction・polymer_oxygen_half_saturation実測プロトコル。ゴム分解オキシゲナーゼのKm(O2)、全菌体呼吸のKs(O2)、培養系全体でのOUR分配の測定手順。
 - [CALIBRATION_EXPERIMENT_RATIONALE_20260912.docx](CALIBRATION_EXPERIMENT_RATIONALE_20260912.docx): 上記3プロトコルの着手根拠となった計算機内(dFBA/GEM)シミュレーション結果を図表付きで整理。
+- [CALIBRATION_EXPERIMENTS_SLIDES_20260912.pptx](CALIBRATION_EXPERIMENTS_SLIDES_20260912.pptx): 上記3プロトコル+根拠データのスライド版(全8枚、実データの図5点を再利用)。
 
 ## ⚙️ 3. システム・アーキテクチャ ([SYSTEM_ARCHITECTURE.md](SYSTEM_ARCHITECTURE.md))
 - 多段階代謝シナジー（Lcp $\rightarrow$ Rox $\rightarrow$ PHA）の物理的定義。
