@@ -55,8 +55,21 @@ import requests
 
 ROOT = Path(__file__).resolve().parents[2]
 
-MODEL = "deepseek/deepseek-v4-flash"
+MODEL = "deepseek/deepseek-v4.1-flash"
 API_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+# Pin OpenRouter routing to a single non-Chinese inference host. DeepSeek
+# model weights are served by many OpenRouter providers, including
+# DeepSeek's own infrastructure and other China-based hosts (e.g.
+# SiliconFlow); left unset, OpenRouter is free to route/fall back to any
+# of them. deepinfra is a US-based inference host. zdr + data_collection
+# "deny" request zero-data-retention handling from that provider.
+PROVIDER_ROUTING = {
+    "only": ["deepinfra"],
+    "allow_fallbacks": False,
+    "zdr": True,
+    "data_collection": "deny",
+}
 
 # Pricing per token (not per million) - see module docstring for source/date.
 DEEPSEEK_PROMPT_PRICE = 0.0000000886
@@ -190,6 +203,10 @@ def delegate(
         ],
         "temperature": temperature,
         "max_tokens": max_tokens,
+        # Restrict inference to a non-Chinese host. Without this, OpenRouter's
+        # default routing for deepseek/* models can fall back to DeepSeek's
+        # own servers or other China-based providers (e.g. SiliconFlow).
+        "provider": PROVIDER_ROUTING,
     }
 
     print(
