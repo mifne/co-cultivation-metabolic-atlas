@@ -1,0 +1,18 @@
+const fs=require('fs'),assert=require('assert'),path=require('path');
+const src=fs.readFileSync(path.join(__dirname,'metabolic_map_flow.js'),'utf8');
+const cytoscape=require('../../outputs/metabolic_map_20260922/vendor/cytoscape.min.js');
+const ring=['cit_c','acon_C_c','icit_c','akg_c','succoa_c','succ_c','fum_c','mal__L_c','oaa_c'];
+const rxns=['ACONTa','ACONTb','ICDHyr','AKGDH','SUCOAS','SUCDi','FUM','MDH','CS'];
+const records=[];ring.forEach((mid,i)=>{for(const [id,data,angle] of [['m_'+mid,{kind:'fm',mid},i*2*Math.PI/9],['r_'+rxns[i],{kind:'fr',reaction:rxns[i],requirementOrigin:mid},(i+.5)*2*Math.PI/9]])records.push({data:{id,...data},position:{x:330*Math.cos(angle),y:330*Math.sin(angle)}})});
+const cy=cytoscape({headless:true,layout:{name:'preset'},elements:records});
+const st={majorShown:new Map([['tca',{}]]),nodes:new Map(records.map(n=>[n.data.id,n]))};
+const helpers=src.slice(src.indexOf('function isTcaLayoutNode'),src.indexOf('function appendFlowStyle'));
+const restore=src.slice(src.indexOf('function restoreFlowPositions('),src.indexOf('let preservingGrowth=false'));
+const run=new Function('flowState','mapCy','flowMode','refineEscherBranches',helpers+restore+';return {restoreFlowPositions,isTcaLayoutNode,isTcaBackbonePair}')(st,cy,true,()=>{});
+const expected=new Map(cy.nodes().map(n=>[n.id(),{...n.position()}]));
+run.restoreFlowPositions(new Map([['m_akg_c',{x:-999,y:999}],['r_AKGDH',{x:123,y:456}]]));
+for(const [id,p] of expected)assert.deepStrictEqual(cy.$id(id).position(),p,id+' must retain cycle position');
+assert(run.isTcaBackbonePair('CS','oaa_c'));assert(run.isTcaBackbonePair('CS','cit_c'));assert(!run.isTcaBackbonePair('CS','coa_c'));
+st.majorShown.clear();assert(!run.isTcaLayoutNode({mid:'akg_c'}));
+run.restoreFlowPositions(new Map([['m_akg_c',{x:-999,y:999}]]));assert.deepStrictEqual(cy.$id('m_akg_c').position(),{x:-999,y:999});
+cy.destroy();console.log('PASS TCA ring preserved during incremental restoration; normal layout resumes after collapse');

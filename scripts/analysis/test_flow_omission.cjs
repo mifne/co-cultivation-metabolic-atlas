@@ -1,0 +1,12 @@
+const fs=require('fs'),assert=require('assert');
+const src=fs.readFileSync(__dirname+'/metabolic_map_flow.js','utf8');
+const code=src.slice(src.indexOf('function directionalOmission('),src.indexOf('function applyOmissions('));
+const omit=new Function(code+';return directionalOmission')();
+const edges=[['feed','r1'],['r1','a'],['a','r2'],['r2','b'],['r2','side']].map(([source,target])=>({source,target}));
+assert.deepStrictEqual([...omit('a',edges,'before')].sort(),['feed','r1']);
+assert.deepStrictEqual([...omit('a',edges,'after')].sort(),['b','r2','side']);
+const cycle=[...edges,{source:'b',target:'a'}];
+assert.deepStrictEqual([...omit('a',cycle,'after')],['side']);
+assert.deepStrictEqual([...omit('a',cycle,'before')].sort(),['feed','r1']);
+assert.equal(omit('feed',edges,'before').size,0);
+console.log('PASS upstream/downstream, branches, cycle protection, root boundary');
