@@ -10,7 +10,7 @@ metabolic_atlas/
 │   │   ├── 00-overview.js    全体図・反応検索・出典タブ
 │   │   ├── state.js          画面状態（setView/setLayer）と問題表示の帯
 │   │   ├── sankey.js         「全体マップ」: 菌種→反応分類のSankey（軽量SVG、反応数の内訳）
-│   │   ├── cytoscape.js / escher.js / complete.js   地図描画とEscher表示
+│   │   ├── cytoscape.js / escher.js   Cytoscape基盤（中心代謝マップ用）とEscher（反応周辺の経路）
 │   │   ├── flow.js / flux.js 経路の展開・FBA流量表示
 │   │   ├── runtime.js        状態・非同期ジョブ・セッション保存
 │   │   ├── core.js           中心代謝の骨格と栄養接続

@@ -169,14 +169,6 @@
     });
   }
 
-  // The overview levels are drawn by atlasDraw rather than flowRender; theme them too.
-  const baseAtlasDraw = atlasDraw;
-  atlasDraw = function (...args) {
-    const out = baseAtlasDraw.apply(this, args);
-    try { themeCy(); } catch (e) { console.warn('atlas theme', e); }
-    return out;
-  };
-
   const baseRender = flowRender;
   flowRender = function (...args) {
     const out = baseRender.apply(this, args);

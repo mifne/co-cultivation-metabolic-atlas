@@ -105,7 +105,7 @@
       '「その他・未分類」は名称・注釈から分類できなかった反応で、生化学的な意味を持つ分類ではありません。</p>' +
       '<div class="sk-actions"><span>詳しく見る：</span>' +
       D.species.map(s => `<button type="button" data-core="${s.short}" style="border-color:${colors[s.short]}">${s.short} の中心代謝マップ</button>`).join('') +
-      '<button type="button" data-detail="1">全反応の階層ネットワーク（重い）</button></div>';
+      '</div>';
     host.append(intro, draw());
     const poolBox = document.createElement('div');
     poolBox.className = 'sk-pools';
@@ -147,7 +147,6 @@
     if (open) { const [short, g] = open.dataset.open.split('|'); openGroup(short, g); return; }
     const core = t.closest('[data-core]');
     if (core) { leaveToCy(); openFlow(core.dataset.core, 'glc__D_e'); return; }
-    if (t.closest('[data-detail]')) { leaveToCy(); atlasDraw(0); return; }
     const pool = t.closest('[data-pool]');
     if (pool) { showPoolInSankey(pool.dataset.pool); return; }
     const link = t.closest('.sk-link');
