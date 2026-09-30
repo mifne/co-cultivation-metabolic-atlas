@@ -10,6 +10,8 @@
   host.id = 'sankeyHost';
   host.hidden = true;
   cyHost.parentNode.append(host);
+  AtlasUI.hosts = AtlasUI.hosts || {};
+  AtlasUI.hosts.sankey = host;
 
   const OTHER = 'その他・未分類';
   function counts() {
@@ -186,9 +188,10 @@
   const baseSetLayer = setLayer;
   setLayer = function (layer) {
     baseSetLayer(layer);
+    const wide = layer === 'sankey' || layer === 'fluxov';
     host.hidden = layer !== 'sankey';
-    controls.style.display = layer === 'sankey' ? 'none' : '';
-    $('context').style.display = layer === 'sankey' ? 'none' : '';
+    controls.style.display = wide ? 'none' : '';
+    $('context').style.display = wide ? 'none' : '';
     if (layer !== 'sankey' && saved) { document.querySelector('.panelhead h2').textContent = saved; saved = null; }
   };
 

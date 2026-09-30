@@ -1,0 +1,44 @@
+/* FBA flux overview */
+body[data-layer="fluxov"] #mappane{grid-template-columns:minmax(0,1fr)}
+#fluxOvHost{padding:8px 24px 24px;background:#fff}
+#fluxOvHost[hidden]{display:none}
+.fo-head p{margin:6px 0;color:#5f7681;font-size:12.5px;line-height:1.75}
+.fo-head em{font-style:normal;font-weight:700;color:#16303b}
+.fo-cond strong{color:#0f5f57}
+.fo-controls{display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin:10px 0 4px;font-size:12.5px;color:#3b5560}
+.fo-controls select{padding:4px 8px}
+#fluxOvNote{color:#8a5a12}
+.fo-sankey svg{width:100%;height:auto;display:block;max-height:78vh}
+#fluxOvSvg text{font-family:inherit;fill:#1c303a}
+#fluxOvSvg .fo-label{font-size:12px}
+#fluxOvSvg .fo-sub{font-size:12px;fill:#657980}
+#fluxOvSvg .fo-colhead{font-size:12px;fill:#657980;letter-spacing:.06em}
+#fluxOvSvg .fo-sp{font-size:15px}
+#fluxOvSvg .fo-link:hover{stroke-opacity:.75}
+.fo-h3{margin:22px 0 8px;font-size:15px}
+.fo-h3 small{font-weight:400;color:#657980;font-size:12px;margin-left:6px}
+.fo-paths{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.fo-paths section{border:1px solid #e1e8eb;border-top:4px solid;border-radius:10px;padding:10px 14px 14px;background:#fcfdfd;min-width:0}
+.fo-paths h3{margin:4px 0}
+.fo-sub2{margin:0 0 8px;color:#657980;font-size:12px}
+.fo-empty{color:#8a5a12;font-size:12.5px;line-height:1.7}
+.fo-row{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr) auto;gap:8px;align-items:center;width:100%;text-align:left;border:0;background:transparent;box-shadow:none;padding:5px 2px;border-radius:6px;font-size:12.5px}
+.fo-row:hover{background:#eef4f5}
+.fo-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fo-bar{display:block;height:9px;background:#eef2f3;border-radius:5px;overflow:hidden}
+.fo-bar i{display:block;height:100%;border-radius:5px;opacity:.75}
+.fo-val{font-variant-numeric:tabular-nums}
+.fo-val small{color:#8aa0a8}
+.fo-top{width:100%;border-collapse:collapse;font-size:11.5px;margin:2px 0 8px}
+.fo-top th{text-align:left;color:#8aa0a8;font-weight:600;padding:3px 4px}
+.fo-top td{padding:3px 4px;border-top:1px solid #edf1f2;vertical-align:top}
+.fo-top td:last-child{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.fo-top tr[data-id]{cursor:pointer}
+.fo-top tr[data-id]:hover{background:#eef4f5}
+.fo-foot{margin-top:18px;color:#8a5a12;font-size:12px;line-height:1.7}
+@media(max-width:1000px){.fo-paths{grid-template-columns:1fr}#fluxOvHost{padding:8px 12px 20px}}
+
+.fo-controls label{display:inline-flex;gap:6px;align-items:center;margin:0}
+.fo-controls input[type=checkbox]{width:auto;min-width:0;padding:0;margin:0}
+.fo-legend{margin:4px 0 0;font-size:12px;color:#657980}
+.fo-dot{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}

@@ -13,6 +13,7 @@ function setLayer(layer) {
   if (typeof cyHost !== 'undefined') cyHost.style.display = layer === 'cy' ? 'block' : 'none';
   if (typeof escherHost !== 'undefined') escherHost.style.display = layer === 'escher' ? 'block' : 'none';
   if (layer === 'sankey' && typeof cyHost !== 'undefined') cyHost.style.display = 'none';
+  for (const [name, h] of Object.entries(AtlasUI.hosts || {})) h.hidden = name !== layer;
   document.body.dataset.layer = layer;
 }
 
@@ -26,8 +27,10 @@ function setView(view) {
   $('export').style.display = view === 'map' ? 'block' : 'none';
   // The map view has two tabs: the fixed overview (mapTab) and the medium-driven flow (flowTab).
   const inFlow = typeof flowMode !== 'undefined' && flowMode;
-  $('mapTab').classList.toggle('active', view === 'map' && !inFlow);
-  $('flowTab')?.classList.toggle('active', view === 'map' && inFlow);
+  const overview = AtlasUI.layer === 'fluxov';
+  $('mapTab').classList.toggle('active', view === 'map' && !inFlow && !overview);
+  $('flowTab')?.classList.toggle('active', view === 'map' && inFlow && !overview);
+  $('fluxTab')?.classList.toggle('active', view === 'map' && overview);
   $('searchTab').classList.toggle('active', view === 'search');
   $('sourceTab').classList.toggle('active', view === 'source');
 }
