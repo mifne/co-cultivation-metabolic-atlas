@@ -18,7 +18,7 @@ metabolic_atlas/
 │   │   ├── core.js           中心代謝の骨格と栄養接続
 │   │   └── theme.js          Cytoscape側の見た目（ノード色・凡例・文字サイズ）
 │   └── vendor/               cytoscape / escher とライセンス
-├── server/             atlas_store.py（セッション・ジョブ）, fba_service.py, structure_server.py（FBA/構造API）, FBA.md
+├── server/             atlas_store.py（セッション・ジョブ）, fba_service.py, carbon_flow.py（炭素の行き先の追跡）, structure_server.py（FBA/構造API）, FBA.md
 └── tests/              *.cjs（JS）, test_*.py（pytest）, validate_flow.cjs
 ```
 

@@ -54,6 +54,9 @@ if reference.exists():
 data["model_fingerprint"]=hashlib.sha256(json.dumps({"species":data["species"],"medium":data["medium"]},sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
 serialized=json.dumps(data,ensure_ascii=False,allow_nan=False)
 (OUT/'model_data.json').write_text(serialized,encoding='utf-8')
+# Reaction categories (same rules as the viewer) for the server-side carbon tracing.
+import subprocess
+subprocess.run(['node',str(ROOT/'scripts/analysis/metabolic_atlas/tools/categories.cjs')],check=True)
 # pFBA snapshots so the flux overview opens instantly and works without the server:
 # the reference medium plus a few single-carbon-source additions for comparing the three species.
 sys.path.insert(0,str(ROOT/'scripts/analysis/metabolic_atlas/server'))
@@ -70,6 +73,7 @@ def solve(sp,medium):
         entry['fluxes']={k:v for k,v in res['fluxes'].items() if abs(v)>1e-9}
         entry['mass_balance_residual']=res.get('mass_balance_residual')
         entry['uptake_limits']=res.get('uptake_limits')
+        if res.get('carbon_flows'):entry['carbon_flows']=res['carbon_flows']
     return entry
 snapshot={'method':'pFBA (fba_service.check ranking)','model_fingerprint':data['model_fingerprint'],'scenarios':[]}
 for sid,label,add in SCENARIOS:

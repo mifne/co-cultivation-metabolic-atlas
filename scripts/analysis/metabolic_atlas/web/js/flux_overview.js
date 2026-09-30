@@ -93,7 +93,31 @@ const FluxOverview = (() => {
     return {value: g, grows: entry?.status === 'optimal' && Number.isFinite(g) && g > EPS};
   }
 
-  return {carbons, exchanges, pathways, growth, EPS};
+  /* Carbon tracing result -> three conserved columns (source, entry category, fate).
+   * Smaller nodes of a column are merged into 「その他」 so the diagram stays readable. */
+  function carbonColumns(cf, topN = 8) {
+    const rows = (cf?.flows || []).filter(f => f[3] > EPS);
+    const total = rows.reduce((a, f) => a + f[3], 0);
+    const keep = idx => {
+      const t = new Map();
+      for (const f of rows) t.set(f[idx], (t.get(f[idx]) || 0) + f[3]);
+      const top = new Set([...t.entries()].sort((a, b) => b[1] - a[1]).slice(0, topN).map(x => x[0]));
+      return {top, name: k => top.has(k) ? k : '\u0000other'};
+    };
+    const S = keep(0), C = keep(1), F = keep(2);
+    const left = new Map(), right = new Map(), col = [new Map(), new Map(), new Map()];
+    const add = (m, a, b, v) => { const k = a + '\u0001' + b; m.set(k, (m.get(k) || 0) + v); };
+    for (const [s, c, f, v] of rows) {
+      const sk = S.name(s), ck = C.name(c), fk = F.name(f);
+      add(left, sk, ck, v); add(right, ck, fk, v);
+      col[0].set(sk, (col[0].get(sk) || 0) + v); col[1].set(ck, (col[1].get(ck) || 0) + v); col[2].set(fk, (col[2].get(fk) || 0) + v);
+    }
+    const nodes = m => [...m.entries()].map(([key, value]) => ({key, value})).sort((a, b) => (a.key === '\u0000other') - (b.key === '\u0000other') || b.value - a.value);
+    const links = m => [...m.entries()].map(([k, value]) => { const [a, b] = k.split('\u0001'); return {a, b, value}; });
+    return {total, src: nodes(col[0]), cat: nodes(col[1]), fate: nodes(col[2]), left: links(left), right: links(right)};
+  }
+
+  return {carbons, exchanges, pathways, growth, carbonColumns, EPS};
 })();
 if (typeof module !== 'undefined') module.exports = FluxOverview;
 
@@ -236,6 +260,96 @@ if (typeof document !== 'undefined' && typeof cyHost !== 'undefined') (() => {
     return {svg, redox, empty: !inPools.length && !outPools.length};
   }
 
+  /* Carbon-tracing Sankey: taken-up carbon -> first (non-transport) reaction category -> final fate.
+   * A proportional-allocation estimate on the flux network, not atom mapping. */
+  let carbonSpecies = null;
+  function drawCarbonSankey(short) {
+    const e = results?.[short], cf = e?.carbon_flows;
+    const wrap = document.createElement('div');
+    wrap.className = 'fo-sankey';
+    if (!cf || cf.error || !cf.flows?.length) {
+      wrap.innerHTML = `<p class="fo-empty">${!e || e.status !== 'optimal' ? '流量が計算されていないため表示できません。' : cf?.error ? '炭素追跡でエラー：' + esc(cf.error) : 'この計算結果には炭素追跡が含まれていません（再ビルド、またはサーバーで再計算してください）。'}</p>`;
+      return wrap;
+    }
+    const col = FluxOverview.carbonColumns(cf, 8);
+    const W = 1000, PAD = 10, X = [250, 500, 770], BAR = 16, TOP = 34, H = 460;
+    const n = Math.max(col.src.length, col.cat.length, col.fate.length);
+    const k = (H - PAD * (n - 1)) / col.total;
+    const label = (dict, key, fallback) => key === '\u0000other' ? 'その他' : (dict[key]?.label || fallback || key);
+    const srcName = key => label(cf.sources || {}, key);
+    const fateName = key => label(cf.fates || {}, key);
+    const fateColor = key => key === '\u0000other' ? '#9aa8ad' : key === 'biomass' ? '#2e9e6b' : /co2/i.test(key) ? '#8a9aa2' : cf.fates?.[key]?.kind === 'secretion' ? '#c9803a' : '#9aa8ad';
+    const place = list => { let y = TOP; const m = new Map(); for (const nd of list) { const h = Math.max(nd.value * k, 2); m.set(nd.key, {y, h, used: 0, used_in: 0, used_out: 0, value: nd.value}); y += h + PAD; } return m; };
+    const P = [place(col.src), place(col.cat), place(col.fate)];
+    const svg = el('svg', {viewBox: `0 0 ${W} ${TOP + H + 60}`, id: 'fluxOvCarbonSvg', role: 'img', 'aria-label': '取り込んだ炭素の入口と行き先（推定）'});
+    const links = el('g'), nodes = el('g'), labels = el('g');
+    svg.append(links, nodes, labels);
+    for (const [x, t, anchor] of [[X[0] - 12, '取り込む成分', 'end'], [X[1], '最初に入る代謝カテゴリ', 'start'], [X[2], '行き先', 'start']])
+      svg.append(el('text', {x, y: 16, 'text-anchor': anchor, class: 'fo-colhead'}, t));
+    const pct = v => (v / col.total * 100).toFixed(v / col.total < .1 ? 1 : 0) + '%';
+    const band = (x0, y0, x1, y1, w, color, title) => {
+      const mid = (x0 + x1) / 2;
+      const p = el('path', {d: `M${x0},${y0} C${mid},${y0} ${mid},${y1} ${x1},${y1}`, fill: 'none', stroke: color, 'stroke-width': Math.max(1, w), 'stroke-opacity': .4, class: 'fo-link'});
+      p.append(el('title', {}, title)); return p;
+    };
+    const order = (list, dict) => [...list].sort((a, b) => (dict.get(a.a)?.y ?? 0) - (dict.get(b.a)?.y ?? 0) || (P[1].get(a.b)?.y ?? P[2].get(a.b)?.y ?? 0) - (P[1].get(b.b)?.y ?? P[2].get(b.b)?.y ?? 0));
+    for (const l of order(col.left, P[0])) {
+      const a = P[0].get(l.a), b = P[1].get(l.b), w = l.value * k;
+      links.append(band(X[0] + BAR, a.y + a.used + w / 2, X[1], b.y + b.used_in + w / 2, w, colors[short], `${srcName(l.a)} → ${l.b === '\u0000other' ? 'その他' : l.b}：${fmt(l.value)} C-mmol/gDW/h（${pct(l.value)}）`));
+      a.used += w; b.used_in += w;
+    }
+    for (const l of order(col.right, P[1])) {
+      const a = P[1].get(l.a), b = P[2].get(l.b), w = l.value * k;
+      links.append(band(X[1] + BAR, a.y + a.used_out + w / 2, X[2], b.y + b.used + w / 2, w, fateColor(l.b), `${l.a === '\u0000other' ? 'その他' : l.a} → ${fateName(l.b)}：${fmt(l.value)} C-mmol/gDW/h（${pct(l.value)}）`));
+      a.used_out += w; b.used += w;
+    }
+    // Two-line labels (name, then amount and share). The middle column sits on top of links, so it gets a white halo.
+    const tidy = t => String(t).replace(/^(.+?)\s+\1$/, '$1').replace(/^(.+?)\s+(?:[A-Z][a-z]?\d*)+$/, '$1');
+    // Labels keep a 32-unit pitch per column; a displaced label gets a short leader line.
+    const drawNodes = (i, list, textFn, anchor, dx, halo) => {
+      let last = -Infinity;
+      for (const nd of list) {
+        const p = P[i].get(nd.key);
+        nodes.append(el('rect', {x: X[i], y: p.y, width: BAR, height: p.h, rx: 2, fill: i === 2 ? fateColor(nd.key) : '#506b78'}));
+        const cy = p.y + p.h / 2, ly = Math.max(cy, last + 32);
+        last = ly;
+        if (Math.abs(ly - cy) > 3) {
+          const x0 = anchor === 'end' ? X[i] : X[i] + BAR, x1 = anchor === 'end' ? X[i] - 6 : X[i] + BAR + 6;
+          labels.append(el('polyline', {points: `${x0},${cy} ${x1},${ly}`, fill: 'none', stroke: '#9fb3bb', 'stroke-width': 1}));
+        }
+        const cls = 'fo-label' + (halo ? ' fo-halo' : '');
+        labels.append(el('text', {x: X[i] + dx, y: ly - 1, 'text-anchor': anchor, class: cls, 'font-weight': 600}, tidy(textFn(nd.key))),
+                      el('text', {x: X[i] + dx, y: ly + 13, 'text-anchor': anchor, class: 'fo-sub' + (halo ? ' fo-halo' : '')}, `${fmt(nd.value)} C-mmol/gDW/h（${pct(nd.value)}）`));
+      }
+    };
+    drawNodes(0, col.src, srcName, 'end', -8, false);
+    drawNodes(1, col.cat, key => key === '\u0000other' ? 'その他' : key, 'start', BAR + 8, true);
+    drawNodes(2, col.fate, fateName, 'start', BAR + 8, false);
+    const bottom = Math.max(...P.map(m => Math.max(...[...m.values()].map(p => p.y + p.h))), ...[...labels.querySelectorAll('text')].map(t => Number(t.getAttribute('y')) + 20));
+    svg.setAttribute('viewBox', `0 0 ${W} ${bottom + 12}`);
+    wrap.append(svg);
+    const note = document.createElement('p');
+    note.className = 'fo-redox';
+    note.textContent = `合計 ${fmt(col.total)} C-mmol/gDW/h。元素（炭素数）収支に基づく比例配分による推定で、原子追跡ではありません。補酵素類の炭素は追跡から除いています。「最初に入る代謝カテゴリ」は輸送反応を除いた最初の反応の分類です。`;
+    wrap.append(note);
+    return wrap;
+  }
+
+  function carbonSection() {
+    const box = document.createElement('section');
+    const grows = D.species.filter(s => FluxOverview.growth(results?.[s.short]).grows);
+    if (!grows.length) return box;
+    if (!grows.some(s => s.short === carbonSpecies)) carbonSpecies = grows[0].short;
+    const h = document.createElement('h3');
+    h.className = 'fo-h3';
+    h.innerHTML = '取り込んだ炭素の行き先 <small>菌種ごと。培地の炭素が、どの代謝カテゴリに入り、バイオマス・CO₂・分泌物のどれになるか（推定）</small>';
+    const tabs = document.createElement('div');
+    tabs.className = 'fo-tabs';
+    tabs.innerHTML = grows.map(s => `<button type="button" data-carbon="${esc(s.short)}" class="${s.short === carbonSpecies ? 'on' : ''}" style="border-color:${colors[s.short]}">${esc(s.short)}</button>`).join('');
+    box.append(h, tabs, drawCarbonSankey(carbonSpecies));
+    return box;
+  }
+
   function pathwayPanel() {
     const wrap = document.createElement('div');
     wrap.className = 'fo-paths';
@@ -316,6 +430,7 @@ if (typeof document !== 'undefined' && typeof cyHost !== 'undefined') (() => {
       rn.innerHTML = '相殺した往復：' + sk.redox.map(r => `${esc(r.sp)}：${esc(r.from)}の取込と${esc(r.to)}の分泌 ${fmt(r.value)}（酸化還元による電子の受け渡しで、正味の物質収支はほぼ0）`).join('；');
       host.append(rn);
     }
+    host.append(carbonSection());
     const h2 = document.createElement('h3');
     h2.className = 'fo-h3';
     h2.innerHTML = '代謝カテゴリごとの反応流量 <small>Σ|v|（mmol/gDW/h）。カテゴリ間で保存される「流れ」ではなく、そこを通る反応活性の目安です。行をクリックで上位反応。</small>';
@@ -337,6 +452,8 @@ if (typeof document !== 'undefined' && typeof cyHost !== 'undefined') (() => {
   });
   host.addEventListener('click', async e => {
     if (e.target.id === 'foRecalc') { await load(true); render(); return; }
+    const cs = e.target.closest('[data-carbon]');
+    if (cs) { carbonSpecies = cs.dataset.carbon; render(); return; }
     const sc = e.target.closest('tr[data-scenario]');
     if (sc) { scenarioId = sc.dataset.scenario; openCategory = null; await load(); render(); return; }
     const row = e.target.closest('.fo-row');

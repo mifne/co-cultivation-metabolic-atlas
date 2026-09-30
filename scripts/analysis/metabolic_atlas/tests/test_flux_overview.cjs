@@ -53,3 +53,15 @@ assert(!grow('reference', 'Pf') && grow('lac', 'Pf') && grow('glc', 'Pf'), 'Pf g
 assert(grow('reference', 'OR16') && grow('reference', 'NS21'));
 for (const sc of snap.scenarios) for (const s of D.species) { const e = sc.species[s.short]; if (e.status === 'optimal') assert(e.mass_balance_residual < 1e-7, sc.id + ' ' + s.short + ' mass balance'); }
 console.log('PASS flux overview aggregation');
+
+// Carbon columns: merging small nodes must conserve totals in every column and on both link sets.
+{
+  const cf = {flows: [['a', 'X', 'biomass', 5], ['a', 'Y', 'secr:co2_e', 3], ['b', 'X', 'secr:co2_e', 2], ['c', 'Z', 'other', 1], ['d', 'W', 'biomass', 0.5], ['e', 'V', 'other', 0.25]]};
+  const col = F.carbonColumns(cf, 2);
+  const sum = a => a.reduce((x, r) => x + r.value, 0), total = 11.75;
+  assert(Math.abs(col.total - total) < 1e-12);
+  for (const part of [col.src, col.cat, col.fate, col.left, col.right]) assert(Math.abs(sum(part) - total) < 1e-12);
+  assert(col.src.length === 3 && col.src.at(-1).key === '\u0000other', 'small sources merged into その他, kept last');
+  assert(F.carbonColumns({}, 3).total === 0);
+  console.log('PASS carbon column aggregation');
+}

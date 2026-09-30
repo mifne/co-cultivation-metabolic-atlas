@@ -53,3 +53,11 @@ body[data-layer="fluxov"] #mappane{grid-template-columns:minmax(0,1fr)}
 .fo-compare tr.on{background:#e2f2ef;font-weight:700}
 .fo-g0{color:#a0642a}
 .fo-na{color:#aab8bd}
+.fo-tabs{display:flex;gap:8px;margin:6px 0 4px}
+.fo-tabs button{border-radius:999px;padding:4px 16px;font-size:12.5px;border-width:2px}
+.fo-tabs button.on{background:#16303b;color:#fff}
+#fluxOvCarbonSvg .fo-halo{paint-order:stroke;stroke:#fff;stroke-width:4px;stroke-linejoin:round}
+#fluxOvCarbonSvg text{font-family:inherit;fill:#1c303a}
+#fluxOvCarbonSvg .fo-sub{font-size:11px;fill:#657980}
+#fluxOvCarbonSvg .fo-label{font-size:13px}
+#fluxOvCarbonSvg .fo-colhead{font-size:12px;fill:#657980}

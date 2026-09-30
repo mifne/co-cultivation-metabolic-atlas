@@ -40,6 +40,22 @@ def fva_direction(low,high):
  return "zero"
 THRESHOLD=1e-6
 
+# --- carbon-flow decomposition (carbon_flow.py); optional, never breaks pFBA ---
+_categories_cache={}
+def carbon_flows(species,fluxes):
+ path=DATA.parent/'categories.json'
+ if not path.exists():return None
+ try:
+  import carbon_flow
+  with _data_lock:
+   stat=path.stat();key=(str(path),stat.st_mtime_ns,stat.st_size)
+   if key not in _categories_cache:_categories_cache.clear();_categories_cache[key]=json.loads(path.read_bytes())
+   categories=_categories_cache[key]
+  if species['short'] not in categories:return {'error':'categories.json has no entry for '+species['short']}
+  return carbon_flow.trace(species,fluxes,categories[species['short']])
+ except Exception as exc:return {'error':str(exc)}
+# --- end carbon-flow ---
+
 def check(short,rid,sign,ranking=False,medium_override=None,fva=False):
  if sign not in (-1,1):return {'status':'unknown','message':'方向が不正です'}
  d,fingerprint=read_model_data()
@@ -119,6 +135,8 @@ def check(short,rid,sign,ranking=False,medium_override=None,fva=False):
     if residual>1e-7 or violation>1e-7 or abs(achieved-primary.objective_value)>1e-6*max(1,abs(primary.objective_value)):raise ValueError('pFBA certificate failed')
     conditions['growth']='GEMの元の目的関数を最適化後、総絶対流量を最小化'
     result.update(status='optimal',method='pFBA',uptake_limits=applied_limits,objective=objective,objective_direction=model.objective.direction,objective_value=float(achieved),fluxes={k:float(v) for k,v in flux.items()},mass_balance_residual=residual,conditions=conditions,message='共通のpFBA解。流量ゼロは別の最適解でもゼロとは限りません。')
+    carbon=carbon_flows(s,result['fluxes'])  # carbon-flow decomposition (optional)
+    if carbon is not None:result['carbon_flows']=carbon
     return remember(key,result)
    target=model.reactions.get_by_id(rid);model.objective=model.problem.Objective(sign*target.flux_expression,direction='max')
    solution=model.optimize()
