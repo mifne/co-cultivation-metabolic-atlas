@@ -20,6 +20,8 @@
     {selector:'edge.mainPath',style:{'line-color':'#476677','target-arrow-color':'#476677',width:3}},
     {selector:'edge.reactionSide',style:{'line-color':'#a7b9c0','target-arrow-color':'#a7b9c0',width:1.8}},
     {selector:'node:selected, node.selectedFlow',style:{'overlay-color':'#0f766e','overlay-opacity':.14,'overlay-padding':9}},
+    {selector:'node[kind="pathway"], node[kind="pool"]',style:{'background-color':'#fff','border-color':'#2a8c82','border-width':3,'color':'#2b4653','font-weight':600,'text-outline-color':'#fbfcfc','text-outline-width':4}},
+    {selector:'node[kind="cm"]',style:{'background-color':'#9bb3bc'}},
     {selector:'node[kind="coreLabel"]',style:{'font-family':FONT,'font-weight':800,'text-background-opacity':1,'text-background-shape':'roundrectangle','text-background-padding':12,'text-border-opacity':0,'text-outline-width':0}}
   ];
   for (const [id, p] of Object.entries(PATHWAY)) {
@@ -38,7 +40,14 @@
     cyHost.parentNode.append(box);
   }
 
+  // The pathway legend only means something on the central-carbon map.
+  function syncLegend() {
+    const box = document.getElementById('atlasLegend');
+    if (box) box.style.display = (typeof flowMode !== 'undefined' && flowMode && flowState?.coreMode) ? '' : 'none';
+  }
+
   function themeCy() {
+    syncLegend();
     if (typeof mapCy === 'undefined' || !mapCy) return;
     const st = mapCy.style();
     const seen = st._atlasRuleKeys ? st._atlasRuleKeys.size : 0;
@@ -58,10 +67,18 @@
     });
   }
 
+  // The overview levels are drawn by atlasDraw rather than flowRender; theme them too.
+  const baseAtlasDraw = atlasDraw;
+  atlasDraw = function (...args) {
+    const out = baseAtlasDraw.apply(this, args);
+    try { themeCy(); } catch (e) { console.warn('atlas theme', e); }
+    return out;
+  };
+
   const baseRender = flowRender;
   flowRender = function (...args) {
     const out = baseRender.apply(this, args);
-    try { themeCy(); ensureLegend(); bumpTypography(); } catch (e) { console.warn('atlas theme', e); }
+    try { themeCy(); ensureLegend(); syncLegend(); bumpTypography(); } catch (e) { console.warn('atlas theme', e); }
     return out;
   };
 })();

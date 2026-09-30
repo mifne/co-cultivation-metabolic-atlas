@@ -68,3 +68,13 @@ dialog::backdrop{background:rgba(15,40,50,.38);backdrop-filter:blur(2px)}
 main{padding:6px 12px 20px!important}
 #atlasLegend{display:none}
 }
+/* Screen state: banners, status chips */
+#atlasBanners{display:flex;flex-direction:column;gap:8px;padding:0 28px}
+#atlasBanners:empty{display:none}
+.banner{display:flex;align-items:flex-start;gap:12px;justify-content:space-between;padding:10px 14px;border-radius:10px;border:1px solid;font-size:12.5px;line-height:1.6}
+.banner button{border:0;background:transparent;box-shadow:none;padding:0 4px;font-size:16px;line-height:1;color:inherit;opacity:.6}
+.banner-error{background:#fdf1ec;border-color:#f0c2b0;color:#8a3b1c}
+.banner-info{background:#e9f3f6;border-color:#bcd8e0;color:#1f5163}
+body[data-server="down"] #atlasStatus::after{content:' · サーバー未接続';color:#b4531f}
+#atlasJobStatus{font-variant-numeric:tabular-nums}
+@media(max-width:850px){#atlasBanners{padding:0 12px}}
