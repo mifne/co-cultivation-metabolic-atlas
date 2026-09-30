@@ -7,7 +7,7 @@
 |軸|値|持ち主|
 |---|---|---|
 |view（ページ区画）|`map` / `search` / `source`|`AtlasUI.view`、`body[data-view]`、`setView()`|
-|layer（地図の描画器）|`cy`（Cytoscape）/ `escher`|`AtlasUI.layer`、`body[data-layer]`、`setLayer()`|
+|layer（地図の描画器）|`cy`（Cytoscape）/ `escher` / `sankey`|`AtlasUI.layer`、`body[data-layer]`、`setLayer()`|
 |地図の種類|概要（mapTab）/ 培地からの流れ（flowTab）|`flowMode`。`setView` が2つのタブの active を排他にする|
 |計算サーバー|`unknown` / `up` / `down`|`body[data-server]`、`noteServerResult()`（`atlasJSON` から呼ぶ）|
 |復元中|`sessionRestoring`|runtime.js（従来どおり）|

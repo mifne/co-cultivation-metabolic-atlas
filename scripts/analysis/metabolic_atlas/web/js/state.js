@@ -3,7 +3,7 @@
  * resolved lazily inside the functions below.
  *
  *   view  : 'map' | 'search' | 'source'   (which page section is visible)
- *   layer : 'cy' | 'escher'               (which renderer fills the map pane)
+ *   layer : 'cy' | 'escher' | 'sankey'    (which renderer fills the map pane)
  */
 const AtlasUI = {view: 'map', layer: 'cy', failures: 0};
 const VIEWS = ['map', 'search', 'source'];
@@ -12,6 +12,7 @@ function setLayer(layer) {
   AtlasUI.layer = layer;
   if (typeof cyHost !== 'undefined') cyHost.style.display = layer === 'cy' ? 'block' : 'none';
   if (typeof escherHost !== 'undefined') escherHost.style.display = layer === 'escher' ? 'block' : 'none';
+  if (layer === 'sankey' && typeof cyHost !== 'undefined') cyHost.style.display = 'none';
   document.body.dataset.layer = layer;
 }
 

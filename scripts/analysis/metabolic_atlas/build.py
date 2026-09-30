@@ -15,9 +15,9 @@ models,evidence=inspect_and_curate(load_requested_models(None,'pf-helper3'))
 data={'generated':datetime.now(timezone.utc).isoformat(),'species':[], 'b12_audit':evidence,
       'mode':'static curated GEM; no solved fluxes', 'sources':{}}
 WEB=ROOT/'scripts/analysis/metabolic_atlas/web'
-CSS_FILES=['00-base','10-cytoscape','20-escher','30-flow','40-core','50-runtime','90-theme']
+CSS_FILES=['00-base','10-cytoscape','20-escher','30-flow','40-core','50-runtime','60-sankey','90-theme']
 # Script load order matters: later modules wrap functions defined by earlier ones.
-JS_MODULES=['00-overview','state','cytoscape','escher','complete','flow','flux','runtime','core','theme']
+JS_MODULES=['00-overview','state','cytoscape','escher','complete','flow','flux','runtime','core','sankey','theme']
 VENDOR=['cytoscape.min.js','escher.min.js','CYTOSCAPE_LICENSE','ESCHER_LICENSE']
 paths=['main.py','src/utils.py','src/metabolite_ids.py','src/b12_evidence.py',
        'src/dfba_simulator.py','src/audited_dfba.py','src/physiology_dfba.py',
