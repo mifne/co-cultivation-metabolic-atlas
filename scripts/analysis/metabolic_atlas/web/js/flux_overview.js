@@ -409,7 +409,7 @@ if (typeof document !== 'undefined' && typeof cyHost !== 'undefined') (() => {
       box.innerHTML = `<h3 style="color:${colors[s.short]}">${esc(s.short)}</h3>`;
       if (!e) { box.insertAdjacentHTML('beforeend', '<p class="fo-empty">未計算</p>'); wrap.append(box); continue; }
       if (e.status !== 'optimal') { box.insertAdjacentHTML('beforeend', `<p class="fo-empty">${esc(e.message || '計算できませんでした')}</p>`); wrap.append(box); continue; }
-      if (!g.grows) { box.insertAdjacentHTML('beforeend', '<p class="fo-empty">この培地では成長できず（目的関数=0）、流量はすべて0です。' + (scenarioId !== 'reference' ? '' : '参照培地にはPfが使える炭素源（グルコース・乳酸・プロピオン酸）がなく、Pfの酸素交換も閉じています。') + '中心代謝マップで炭素源などを加えて「サーバーで再計算」してください（例：乳酸10 mMで成長）。</p>'); wrap.append(box); continue; }
+      if (!g.grows) { box.insertAdjacentHTML('beforeend', '<p class="fo-empty">この培地では成長できず（目的関数=0）、流量はすべて0です。' + (scenarioId !== 'reference' ? '' : '参照培地は流加前の初期培地で、Pfが使える炭素源（グルコース・乳酸・プロピオン酸）を含みません（設計では乳酸を流加で与えます）。Pfの酸素交換も閉じています（嫌気）。') + '上の表で「乳酸流加相当」などの行を選ぶか、中心代謝マップで培地を編集して「サーバーで再計算」してください。</p>'); wrap.append(box); continue; }
       const cats = FluxOverview.pathways(s, e.fluxes, CoreMetabolism.select(s));
       const max = cats[0]?.total || 1;
       box.insertAdjacentHTML('beforeend', `<p class="fo-sub2">成長 ${g.value.toFixed(3)} /h · 活性のある内部反応 ${cats.reduce((a, c) => a + c.active, 0)}</p>`);

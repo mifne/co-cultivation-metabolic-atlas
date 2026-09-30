@@ -50,7 +50,7 @@
       </section>
       <section class="hm-facts">
         <div><strong>${D.species.length} 菌種 · ${total.toLocaleString()} 反応</strong><span>${D.species.map(s => `${s.short} ${s.reactions.length.toLocaleString()}`).join(' / ')}</span></div>
-        <div><strong>前提</strong><span>静的なGEMと共通のpFBA。各菌種を単独で同じ培地条件で解き、菌種間の授受・動的な培養（dFBA）は含みません。</span></div>
+        <div><strong>前提</strong><span>静的なGEMと共通のpFBA。各菌種を単独で同じ培地条件で解き、菌種間の授受・動的な培養（dFBA）は含みません。参照培地は流加前の初期培地です。乳酸など菌種特有の栄養は流加で与える設計なので、「乳酸流加相当」の行で比べてください。</span></div>
         <div><strong>読み方</strong><span>帯や線の太さは、反応の数またはモデル上の流量。実培養の測定値ではありません。</span></div>
       </section>`;
   }

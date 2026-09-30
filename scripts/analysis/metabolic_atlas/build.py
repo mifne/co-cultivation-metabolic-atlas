@@ -12,6 +12,12 @@ from cobra.util.solver import linear_reaction_coefficients
 OUT=ROOT/'outputs/metabolic_map_20260922'
 OUT.mkdir(parents=True,exist_ok=True)
 models,evidence=inspect_and_curate(load_requested_models(None,'pf-helper3'))
+# The atlas shows Pf with its real exchanges connected to the shared pools (opt-in curation; the dFBA defaults are unchanged).
+from src.pf_curation import curate_pf_exchanges
+pf_curation_report={}
+for _name in list(models):
+    if 'freudenreichii' in _name.lower() or _name.lower().startswith('pf'):
+        models[_name],pf_curation_report=curate_pf_exchanges(models[_name])
 data={'generated':datetime.now(timezone.utc).isoformat(),'species':[], 'b12_audit':evidence,
       'mode':'static curated GEM; no solved fluxes', 'sources':{}}
 WEB=ROOT/'scripts/analysis/metabolic_atlas/web'
@@ -62,6 +68,7 @@ subprocess.run(['node',str(ROOT/'scripts/analysis/metabolic_atlas/tools/categori
 sys.path.insert(0,str(ROOT/'scripts/analysis/metabolic_atlas/server'))
 import fba_service
 SCENARIOS=[('reference','参照培地',{}),
+           ('fed','乳酸流加相当（乳酸6 mM＋NH₄ 3 mM）',{'lac__L_e':6.0,'nh4_e':3.0}),
            ('lac','＋L-乳酸 10 mM',{'lac__L_e':10.0}),
            ('glc','＋グルコース 10 mM',{'glc__D_e':10.0}),
            ('ppa','＋プロピオン酸 10 mM',{'ppa_e':10.0}),
