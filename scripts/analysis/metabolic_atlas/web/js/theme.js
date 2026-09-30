@@ -108,26 +108,39 @@
     }
     return true;
   }
-  function routeAroundLabels(fs) {
+  // Routing is decided at a fixed reference font size so it does not change while zooming.
+  const ROUTE_FS = 24;
+  function routeAroundLabels() {
     if (!flowState?.coreMode) return;
     const metabolites = mapCy.nodes('[coreKey]').filter(n => n.visible());
     mapCy.edges().forEach(e => {
-      if (e.hasClass('coreCofactorHidden') || e.style('curve-style') !== 'straight') return;
+      if (e.hasClass('coreCofactorHidden')) return;
       const a = e.source(), b = e.target(), rn = a.data('reaction') ? a : b.data('reaction') ? b : null;
       const mn = rn === a ? b : a;
       if (!rn || !mn.data('coreKey')) return;
+      const routed = e.data('themeRouted');
+      if (!routed && e.style('curve-style') !== 'straight') return;
       const pa = a.position(), pb = b.position();
-      const hit = metabolites.some(m => m.id() !== mn.id() && segHitsRect(pa, pb, labelRect(m, fs)));
-      if (!hit) return;
-      // Bend at the reaction's own height, ~100 units before the metabolite, then go straight in.
-      const from = rn.position(), to = mn.position(), sign = to.x >= from.x ? 1 : -1;
-      const bend = {x: to.x - sign * 100, y: from.y};
-      const S = rn === a ? pa : pb, T = rn === a ? pb : pa;
-      const dx = T.x - S.x, dy = T.y - S.y, L2 = dx * dx + dy * dy, L = Math.sqrt(L2);
-      const w = ((bend.x - S.x) * dx + (bend.y - S.y) * dy) / L2;
-      const d = ((bend.x - S.x) * (-dy) + (bend.y - S.y) * dx) / L;
-      // Cytoscape measures the distance to the right of the source->target direction.
-      e.style({'curve-style': 'segments', 'segment-weights': [w], 'segment-distances': [d]});
+      const hit = metabolites.some(m => m.id() !== mn.id() && segHitsRect(pa, pb, labelRect(m, ROUTE_FS)));
+      let route = null;
+      if (hit) {
+        // Bend at the reaction's own height, ~100 units before the metabolite, then go straight in.
+        const from = rn.position(), to = mn.position(), sign = to.x >= from.x ? 1 : -1;
+        const bend = {x: to.x - sign * 100, y: from.y};
+        const S = rn === a ? pa : pb, T = rn === a ? pb : pa;
+        const dx = T.x - S.x, dy = T.y - S.y, L2 = dx * dx + dy * dy, L = Math.sqrt(L2);
+        const w = ((bend.x - S.x) * dx + (bend.y - S.y) * dy) / L2;
+        const d = ((bend.x - S.x) * (-dy) + (bend.y - S.y) * dx) / L;
+        // Only accept a detour whose bend lies between the endpoints; otherwise keep it straight.
+        if (w > 0.1 && w < 0.9) route = {w, d};
+      }
+      if (route) {
+        e.data('themeRouted', 1);
+        e.style({'curve-style': 'segments', 'segment-weights': [route.w], 'segment-distances': [route.d]});
+      } else if (routed) {
+        e.data('themeRouted', 0);
+        e.style({'curve-style': 'straight'});
+      }
     });
   }
 
@@ -138,7 +151,7 @@
       const fs = Math.min(46, Math.max(19, 10.5 / z));
       mapCy.nodes('[coreKey]').style({'font-size': fs});
       placeCoreLabels(fs);
-      routeAroundLabels(fs);
+      routeAroundLabels();
       mapCy.nodes('[kind="fr"]').style({'font-size': Math.min(28, Math.max(16, 9 / z))});
     });
   }
