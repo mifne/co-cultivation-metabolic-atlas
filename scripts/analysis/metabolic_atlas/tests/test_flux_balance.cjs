@@ -23,3 +23,13 @@ const or16 = D.species.find(s => s.short === 'OR16'), ref = snap.scenarios[0].sp
 const spec = C.select(or16), pyr = B.imbalance(or16, spec.mids.pyr, new Set(spec.reactions.map(x => x.r.id)), ref.fluxes);
 assert(pyr.net < -10 && pyr.who[0][0] === 'ACLS', 'OR16 pyruvate leaves mainly through ACLS');
 console.log('PASS flux balance: ' + checked + ' metabolite balances close; OR16 pyr hidden net ' + pyr.net.toFixed(2));
+
+// Hover panel data: producers and consumers of a metabolite from the FBA solution.
+{
+  const ns = D.species.find(s => s.short === 'NS21'), e = snap.scenarios[0].species.NS21, sp = C.select(ns), shown = new Set(sp.reactions.map(x => x.r.id));
+  const t = B.turnover(ns, sp.mids.g3p, e.fluxes, shown);
+  assert(Math.abs(t.produced - t.consumed) < 1e-5, 'g3p production equals consumption at steady state');
+  assert(t.producers.every((x, i) => i === 0 || t.producers[i - 1].value >= x.value));
+  assert(t.producers.concat(t.consumers).every(x => typeof x.drawn === 'boolean'));
+  console.log('PASS hover turnover: NS21 g3p turnover ' + t.produced.toFixed(3));
+}

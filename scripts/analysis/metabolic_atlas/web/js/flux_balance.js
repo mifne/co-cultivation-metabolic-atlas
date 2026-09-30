@@ -19,134 +19,82 @@ const FluxBalance = (() => {
     who.sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
     return {net, who};
   }
-  return {imbalance};
+  /* Everything the FBA solution does with one metabolite: producing and consuming reactions, largest first. */
+  function turnover(species, mid, fluxes, shown) {
+    const producers = [], consumers = [];
+    for (const r of species.reactions) {
+      const c = r.stoich[mid];
+      if (c === undefined) continue;
+      const v = (fluxes[r.id] || 0) * c;
+      if (Math.abs(v) < 1e-9) continue;
+      (v > 0 ? producers : consumers).push({id: r.id, name: r.name, exchange: !!r.exchange, drawn: shown ? shown.has(r.id) : null, value: Math.abs(v)});
+    }
+    producers.sort((a, b) => b.value - a.value); consumers.sort((a, b) => b.value - a.value);
+    const sum = l => l.reduce((x, r) => x + r.value, 0);
+    return {producers, consumers, produced: sum(producers), consumed: sum(consumers)};
+  }
+  return {imbalance, turnover};
 })();
 if (typeof module !== 'undefined') module.exports = FluxBalance;
 
-if (typeof applyFluxView !== 'undefined') (() => {
-  const MIN = 0.1;                  // mmol/gDW/h; smaller imbalances are noise for this purpose
-  const baseApply = applyFluxView;
-  const fmt = v => Math.abs(v) >= 10 ? Math.abs(v).toFixed(1) : Math.abs(v).toFixed(2);
-  const sgn = v => (v > 0 ? '+' : '−') + fmt(v);
+if (typeof showCompoundStructure !== 'undefined') (() => {
+  /* Hover on a metabolite: show what the FBA solution does with it (default) or its structure (toggle).
+   * The preview is a fixed, click-through box, so the switch lives in the side panel. */
+  const KEY = 'metabolic-atlas-hover-structure';
+  const fmt = v => v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v >= 1 ? v.toFixed(2) : v.toFixed(3);
+  let structureMode = false;
+  try { structureMode = localStorage.getItem(KEY) === '1'; } catch { /* storage unavailable */ }
 
-  // Compact chips over the map (HTML overlay, not graph nodes), one hover card, and a list in the side panel.
-  let layer = null, card = null, items = [];
-  function ensureLayer() {
-    if (layer && layer.parentNode === cyHost) return layer;
-    layer?.remove();
-    layer = document.createElement('div');
-    layer.id = 'fluxNotes';
-    layer.setAttribute('aria-hidden', 'true');
-    card = document.createElement('div');
-    card.className = 'fluxCard';
-    card.hidden = true;
-    layer.append(card);
-    cyHost.style.position = 'relative';
-    cyHost.append(layer);
-    return layer;
-  }
-
-  function reposition() {
-    if (!mapCy || mapCy.destroyed() || !layer) return;
-    for (const it of items) {
-      const n = mapCy.getElementById(it.host);
-      const visible = n.length && n.visible() && !n.hasClass('coreCofactorHidden');
-      it.el.style.display = visible ? '' : 'none';
-      if (!visible) continue;
-      const p = n.renderedPosition();
-      it.el.style.transform = `translate(${p.x + 11}px, ${p.y - 26}px)`;
-    }
-    if (!card.hidden && card._item) placeCard(card._item);
-  }
-
-  function placeCard(it) {
-    const p = mapCy.getElementById(it.host).renderedPosition(), w = layer.clientWidth, h = layer.clientHeight;
-    const x = Math.min(Math.max(8, p.x + 16), Math.max(8, w - card.offsetWidth - 8));
-    const y = Math.min(Math.max(8, p.y - card.offsetHeight - 10), Math.max(8, h - card.offsetHeight - 8));
-    card.style.transform = `translate(${x}px, ${y}px)`;
-  }
-
-  function showCard(it) {
-    const rs = new Map(flowState.s.reactions.map(r => [r.id, r]));
-    const max = Math.max(...it.who.map(x => Math.abs(x[1])));
-    card._item = it;
-    card.innerHTML = `<div class="fc-head"><strong>${esc(it.name)}</strong><code>${esc(it.mid)}</code></div>` +
-      `<p>${it.net < 0 ? '表示していない反応へ出ていく' : '表示していない反応から入る'}正味 <b>${fmt(it.net)}</b> mmol/gDW/h</p>` +
-      '<ul>' + it.who.slice(0, 6).map(([id, v]) => `<li><span class="fc-id">${esc(id)}</span><span class="fc-name">${esc(rs.get(id)?.name || '')}</span>` +
-        `<span class="fc-bar"><i style="width:${Math.max(4, Math.abs(v) / max * 100)}%;background:${v > 0 ? '#2f8f83' : '#c2571a'}"></i></span><span class="fc-val">${sgn(v)}</span></li>`).join('') + '</ul>' +
-      `<div class="fc-foot">${it.who.length > 6 ? `ほか ${it.who.length - 6} 反応。` : ''}＋は生成、−は消費。これらの反応はマップに描いていません。</div>`;
-    card.hidden = false;
-    placeCard(it);
-  }
-
-  function sidePanel(list) {
-    const anchor = document.getElementById('centralAdvanced') || document.getElementById('fluxControls');
-    if (!anchor) return;
-    let d = document.getElementById('fluxHidden');
-    if (!list.length) { d?.remove(); return; }
-    if (!d) {
-      d = document.createElement('details');
-      d.id = 'fluxHidden';
-      d.className = 'fluxHidden';
-      if (anchor.id === 'centralAdvanced') anchor.before(d); else anchor.append(d);
-    }
-    const keepOpen = d.open;
-    d.innerHTML = `<summary>表示していない反応との出入り <span class="fh-count">${list.length}</span></summary>` +
-      '<p class="fh-note">FBA解で、マップに描いていない反応と大きく出入りしている代謝物です。クリックで該当箇所へ移動します。</p>' +
-      '<ul>' + list.map((it, i) => `<li><button type="button" data-fh="${i}"><span class="fc-arrow ${it.net < 0 ? '' : 'in'}">${it.net < 0 ? '↗' : '↙'}</span><span class="fh-name">${esc(it.name)}</span><span class="fh-val">${fmt(it.net)}</span></button></li>`).join('') + '</ul>';
-    d.open = keepOpen;
-    d.onclick = e => {
-      const b = e.target.closest('[data-fh]');
-      if (!b) return;
-      const n = mapCy.getElementById(list[Number(b.dataset.fh)].host);
-      if (n.length) mapCy.animate({center: {eles: n}, zoom: Math.max(mapCy.zoom(), 0.8)}, {duration: 250});
-    };
-  }
-
-  function update() {
-    if (window.__noFluxNotes) return;
+  function fluxReady() {
     const st = flowState;
-    const active = flowMode && mapCy && !mapCy.destroyed() && st?.coreMode && st.fluxEnabled && st.fluxResult?.status === 'optimal';
-    const shown = active ? new Set(mapCy.nodes().filter(n => n.data('reaction')).map(n => n.data('reaction'))) : new Set();
-    // applyFluxView runs very often (zoom, animation). Rebuild only when the solution or the drawn reactions change,
-    // so a hover card stays open and nothing flickers.
-    const key = active ? [st.fluxResult.fluxes ? Object.keys(st.fluxResult.fluxes).length : 0, st.s.short, [...shown].sort().join(',')].join('|') : '';
-    if (active && key === update.key && items.length && layer?.parentNode === cyHost) { reposition(); return; }
-    update.key = key;
-    items = [];
-    if (layer) { layer.textContent = ''; layer.append(card); card.hidden = true; }
-    document.getElementById('fluxHidden')?.remove();
-    if (!active) return;
-    const fluxes = st.fluxResult.fluxes;
-    const box = ensureLayer();
-    mapCy.nodes('[coreKey]').forEach(n => {
-      const mid = n.data('mid');
-      if (!mid || !st.s.metabolites[mid]) return;
-      const {net, who} = FluxBalance.imbalance(st.s, mid, shown, fluxes);
-      if (Math.abs(net) < MIN) return;
-      const it = {host: n.id(), mid, name: st.s.metabolites[mid].name || mid, net, who};
-      const el = document.createElement('button');
-      el.type = 'button';
-      el.className = 'fluxChip' + (net < 0 ? '' : ' in');
-      el.innerHTML = `<span class="fc-arrow">${net < 0 ? '↗' : '↙'}</span>${fmt(net)}`;
-      el.setAttribute('aria-label', `${it.name}：表示していない反応との正味 ${net < 0 ? '流出' : '流入'} ${fmt(net)}`);
-      el.addEventListener('mouseenter', () => showCard(it));
-      el.addEventListener('focus', () => showCard(it));
-      el.addEventListener('mouseleave', () => { card.hidden = true; });
-      el.addEventListener('blur', () => { card.hidden = true; });
-      box.append(el);
-      it.el = el;
-      items.push(it);
-    });
-    items.sort((a, b) => Math.abs(b.net) - Math.abs(a.net));
-    sidePanel(items);
-    if (!mapCy._fluxNoteRender) { mapCy._fluxNoteRender = true; mapCy.on('render', reposition); }
-    reposition();
+    return !!(st && st.fluxEnabled && st.fluxResult?.status === 'optimal');
   }
 
-  applyFluxView = function (...args) {
-    const out = baseApply.apply(this, args);
-    try { update(); } catch (e) { console.warn('flux balance notes', e); }
-    return out;
+  function row(it, color, max) {
+    const tag = it.exchange ? '<em>交換</em>' : it.drawn === false ? '<em class="hid">非表示</em>' : '';
+    return `<li><span class="hv-id">${esc(it.id)}</span><span class="hv-name">${esc(it.name || '')}</span>${tag}` +
+      `<span class="hv-bar"><i style="width:${Math.max(3, it.value / max * 100)}%;background:${color}"></i></span><span class="hv-val">${fmt(it.value)}</span></li>`;
+  }
+
+  function fbaPanel(n) {
+    const st = flowState, mid = n.data('mid'), m = st.s.metabolites[mid];
+    const shown = new Set(mapCy.nodes().filter(x => x.data('reaction')).map(x => x.data('reaction')));
+    const t = FluxBalance.turnover(st.s, mid, st.fluxResult.fluxes, shown);
+    const max = Math.max(t.produced, t.consumed, 1e-9);
+    const list = (title, arr, color) => `<h4>${title}<span>${fmt(arr.reduce((a, r) => a + r.value, 0))}</span></h4>` +
+      (arr.length ? `<ul>${arr.slice(0, 5).map(r => row(r, color, arr[0].value)).join('')}</ul>${arr.length > 5 ? `<p class="hv-more">ほか ${arr.length - 5} 反応</p>` : ''}` : '<p class="hv-more">なし</p>');
+    structurePreview.innerHTML = `<div class="hv-head"><strong>${esc(m?.name || mid)}</strong><code>${esc(mid)}</code></div>` +
+      (t.produced + t.consumed < 1e-9 ? '<p class="hv-none">この解では流量がありません（ゼロ）。</p>' :
+        `<div class="hv-turn">回転量 <b>${fmt(Math.max(t.produced, t.consumed))}</b> <small>mmol/gDW/h</small></div>` +
+        list('生成', t.producers, '#2f8f83') + list('消費', t.consumers, '#c2571a')) +
+      '<div class="hv-foot">共通pFBAの解 · 「非表示」はマップに描いていない反応 · 構造式はサイドパネルのスイッチで切替</div>';
+    structurePreview.classList.add('hv-fba');
+    structurePreview.hidden = false;
+  }
+
+  const base = showCompoundStructure;
+  showCompoundStructure = async function (n, token) {
+    if (!structureMode && fluxReady() && token === structureToken) {
+      try { fbaPanel(n); if (typeof positionCompoundTools === 'function') positionCompoundTools(); return; } catch (e) { console.warn('hover FBA panel', e); }
+    }
+    structurePreview.classList.remove('hv-fba');
+    return base(n, token);
   };
+
+  function installSwitch() {
+    if (document.getElementById('hoverStructureSwitch')) return;
+    const anchor = document.querySelector('.coreToggle');
+    if (!anchor) return;
+    const lab = document.createElement('label');
+    lab.className = 'coreToggle switch';
+    lab.id = 'hoverStructureSwitch';
+    lab.innerHTML = '<input type="checkbox" role="switch"><span class="sw-track"><i></i></span><span class="sw-text">ノードのホバーで構造式を表示<small>オフ：その代謝物のFBAデータを表示</small></span>';
+    const box = lab.querySelector('input');
+    box.checked = structureMode;
+    box.onchange = () => { structureMode = box.checked; try { localStorage.setItem(KEY, structureMode ? '1' : '0'); } catch { /* ignore */ } structurePreview.hidden = true; };
+    anchor.after(lab);
+  }
+  // The central controls are rebuilt on species change and session restore: (re)attach the switch whenever they appear.
+  new MutationObserver(installSwitch).observe($('context'), {childList: true, subtree: true});
+  installSwitch();
 })();
