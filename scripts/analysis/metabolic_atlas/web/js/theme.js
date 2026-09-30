@@ -35,7 +35,8 @@
     if (document.getElementById('atlasLegend') || typeof cyHost === 'undefined' || !cyHost.parentNode) return;
     const box = document.createElement('div');
     box.id = 'atlasLegend';
-    box.innerHTML = '<b>PATHWAY</b>' + legendItems.map(([t, c]) => '<span><i style="border-color:' + c + '"></i>' + t + '</span>').join('');
+    box.innerHTML = '<b>PATHWAY</b>' + legendItems.map(([t, c]) => '<span><i style="border-color:' + c + '"></i>' + t + '</span>').join('') +
+      '<b style="margin-top:4px">LINES</b><span><u style="background:#476677"></u>反応の主な入力→出力</span><span><u style="background:#a7b9c0;height:2px"></u>同じ反応の他の基質・生成物</span>';
     cyHost.parentNode.style.position = 'relative';
     cyHost.parentNode.append(box);
   }
@@ -58,11 +59,40 @@
   }
 
   // Larger on-map type: the earlier zoom-compensated sizes were too small at fit-to-screen zoom.
+  // Where each metabolite's own label sits, so it never lands on a reaction label.
+  // TCA ring: outward from the ring centre. Vertical chains: to the right of the node.
+  const VERTICAL = new Set(['dhap', 'g6p', 'pgl', 'pgc', 'pyr', 'accoa']);
+  const RING = new Set(PATHWAY.tca.keys.filter(k => k !== 'accoa'));
+  function placeCoreLabels(fontSize) {
+    const centre = mapCy.getElementById('core_label_tca');
+    const gap = 26;
+    // Side labels stay centred and are shifted by half their width: Cytoscape clips
+    // text-halign left/right labels when the font size is changed after layout.
+    const half = n => (String(n.data('mid') || n.data('coreKey')).length * fontSize * 0.3) + gap;
+    mapCy.nodes('[coreKey]').forEach(n => {
+      const k = n.data('coreKey');
+      let pos = null;
+      if (RING.has(k) && centre.length) {
+        const dx = n.position('x') - centre.position('x'), dy = n.position('y') - centre.position('y');
+        pos = Math.abs(dx) > Math.abs(dy) * 0.55
+          ? {'text-margin-x': dx > 0 ? half(n) : -half(n), 'text-margin-y': 0}
+          : {'text-margin-x': 0, 'text-margin-y': dy > 0 ? gap : -gap};
+        if (pos['text-margin-y'] === 0) pos['text-valign'] = 'center';
+        else pos['text-valign'] = dy > 0 ? 'bottom' : 'top';
+      } else if (VERTICAL.has(k)) {
+        pos = {'text-margin-x': half(n), 'text-margin-y': 0, 'text-valign': 'center'};
+      }
+      if (pos) n.style(pos);
+    });
+  }
+
   function bumpTypography() {
     if (typeof mapCy === 'undefined' || !mapCy || !flowState?.coreMode) return;
     const z = mapCy.zoom();
     mapCy.batch(() => {
-      mapCy.nodes('[coreKey]').style({'font-size': Math.min(46, Math.max(19, 10.5 / z))});
+      const fs = Math.min(46, Math.max(19, 10.5 / z));
+      mapCy.nodes('[coreKey]').style({'font-size': fs});
+      placeCoreLabels(fs);
       mapCy.nodes('[kind="fr"]').style({'font-size': Math.min(28, Math.max(16, 9 / z))});
     });
   }

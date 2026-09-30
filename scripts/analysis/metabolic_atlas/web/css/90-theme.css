@@ -78,3 +78,4 @@ main{padding:6px 12px 20px!important}
 body[data-server="down"] #atlasStatus::after{content:' · サーバー未接続';color:#b4531f}
 #atlasJobStatus{font-variant-numeric:tabular-nums}
 @media(max-width:850px){#atlasBanners{padding:0 12px}}
+#atlasLegend u{display:inline-block;width:18px;height:3px;border-radius:2px}
