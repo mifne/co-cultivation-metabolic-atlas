@@ -36,10 +36,17 @@
     if (document.getElementById('atlasLegend') || typeof cyHost === 'undefined' || !cyHost.parentNode) return;
     const box = document.createElement('div');
     box.id = 'atlasLegend';
-    box.innerHTML = '<b>PATHWAY</b>' + legendItems.map(([t, c]) => '<span><i style="border-color:' + c + '"></i>' + t + '</span>').join('') +
-      '<b style="margin-top:4px">LINES</b><span><u style="background:#476677"></u>反応の主な入力→出力</span><span><i style="border-color:#b4531f"></i>オレンジの注記：表示していない反応との間で出入りしているFBA流量</span><span><u style="background:#a7b9c0;height:2px"></u>同じ反応の他の基質・生成物</span>';
-    cyHost.parentNode.style.position = 'relative';
-    cyHost.parentNode.append(box);
+    box.setAttribute('aria-label', '凡例');
+    const dots = legendItems.map(([t, c]) => `<span class="lg-item"><i class="lg-dot" style="border-color:${c}"></i>${t}</span>`).join('');
+    box.innerHTML =
+      `<div class="lg-group"><b>経路</b>${dots}</div>` +
+      '<div class="lg-group"><b>線</b>' +
+        '<span class="lg-item"><u class="lg-line lg-main"></u>反応の主な入力→出力</span>' +
+        '<span class="lg-item"><u class="lg-line lg-side"></u>同じ反応の他の基質・生成物</span></div>' +
+      '<div class="lg-group"><b>FBA</b>' +
+        '<span class="lg-item"><span class="fluxChip static"><span class="fc-arrow">↗</span>12.3</span>表示していない反応へ</span>' +
+        '<span class="lg-item"><span class="fluxChip static in"><span class="fc-arrow">↙</span>5.7</span>表示していない反応から</span></div>';
+    cyHost.after(box);       // in normal flow under the map: it can never cover the graph
   }
 
   // The pathway legend only means something on the central-carbon map.
