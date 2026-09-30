@@ -24,8 +24,33 @@ from src.callbacks import ConsortiumCallback
 from src.utils import load_sbml_models, select_consortium_models, get_initial_params, create_mock_models
 
 
-def load_requested_models(sbml_dir: str | None, profile: str = 'legacy3') -> dict:
-    """Read an explicit consortium profile without creating or curating GEMs."""
+PF_CURATED_ENV = 'PF_CURATED'
+
+
+def pf_curation_requested(explicit: Optional[bool] = None) -> bool:
+    """Opt-in switch for src.pf_curation (default OFF).
+
+    ``explicit`` (the ``--pf-curated`` CLI flag) wins; otherwise the
+    ``PF_CURATED`` environment variable is read ('' / 0 / false / no / off ->
+    OFF, 1 / true / yes / on -> ON; anything else is rejected).
+    """
+    if explicit is not None:
+        return bool(explicit)
+    raw = os.environ.get(PF_CURATED_ENV, '').strip().lower()
+    if raw in {'', '0', 'false', 'no', 'off'}:
+        return False
+    if raw in {'1', 'true', 'yes', 'on'}:
+        return True
+    raise ValueError(f'{PF_CURATED_ENV} must be 0/1 (got {raw!r})')
+
+
+def load_requested_models(sbml_dir: str | None, profile: str = 'legacy3', pf_curated: Optional[bool] = None) -> dict:
+    """Read an explicit consortium profile without creating or curating GEMs.
+
+    Only when the opt-in Pf curation is requested (``pf_curated=True`` or
+    ``PF_CURATED=1``) is ``src.pf_curation.curate_pf_exchanges`` applied to the
+    selected P. freudenreichii model; with the switch OFF nothing changes.
+    """
     project = Path(__file__).resolve().parent
     models = load_sbml_models(Path(sbml_dir) if sbml_dir else project / 'models/sbml/final_consortium')
     if profile == 'pf-helper3' and not any('freudenreichii' in name.lower() for name in models):
@@ -33,7 +58,17 @@ def load_requested_models(sbml_dir: str | None, profile: str = 'legacy3') -> dic
         if not helper_path.is_file():
             raise FileNotFoundError(f'Requested Pf GEM is missing: {helper_path}')
         models['Propionibacterium_freudenreichii_shermanii'] = cobra.io.read_sbml_model(str(helper_path))
-    return select_consortium_models(models, profile=profile)
+    selected = select_consortium_models(models, profile=profile)
+    if pf_curation_requested(pf_curated):
+        from src.pf_curation import curate_pf_exchanges
+        names = [name for name in selected if 'freudenreichii' in name.lower()]
+        if len(names) != 1:
+            raise ValueError(f'Pf exchange curation requested but profile {profile!r} has no single Pf model')
+        # Freshly read model owned by this call: curate in place (Hg/Cd/Pb
+        # uptake closed; H2S and all other exchanges keep their bounds).
+        _, report = curate_pf_exchanges(selected[names[0]], close_toxic_sinks=True, inplace=True)
+        print(f"  ✅ Pf exchange curation (opt-in): {report['summary']}")
+    return selected
 
 
 def cultivation_options(args) -> dict:
@@ -52,7 +87,7 @@ def cultivation_options(args) -> dict:
     control_dt = float(getattr(args, 'control_dt', .2))
     if not np.isfinite(control_dt) or control_dt <= 0:
         raise ValueError('control-dt must be positive and finite')
-    return dict(
+    options = dict(
         dynamics=dynamics, consortium_profile=getattr(args, 'consortium_profile', 'legacy3'), physiology=physiology,
         control_dt=control_dt, internal_dt=getattr(args, 'internal_dt', .025),
         fba_mode=mode, solver_backend=backend,
@@ -63,6 +98,11 @@ def cultivation_options(args) -> dict:
         observation_schema=getattr(args, 'observation_schema', None) or ('metabolic_v2' if dynamics in {'audited','physiology'} else 'legacy_v1'),
         max_specific_feed_rate_mmol_l_h=getattr(args, 'max_specific_feed_rate', .1),
     )
+    # Opt-in Pf exchange curation: recorded only when ON, so OFF option dicts
+    # (and cultivation_configuration.json) are unchanged.
+    if pf_curation_requested(getattr(args, 'pf_curated', None)):
+        options['pf_curated'] = True
+    return options
 
 
 def make_env(
@@ -86,7 +126,8 @@ def make_env(
         if preloaded_models is not None:
             models = preloaded_models
         else:
-            models = load_requested_models(sbml_dir, env_params.get('consortium_profile', 'legacy3'))
+            models = load_requested_models(sbml_dir, env_params.get('consortium_profile', 'legacy3'),
+                                           pf_curated=env_params.get('pf_curated'))
             
         initial_biomass, initial_metabolites = get_initial_params(models)
         if env_params.get('initial_nh4') is not None:
@@ -200,6 +241,7 @@ def make_env(
                 'cooperative_gpu_qp_service',
                 'dynamics', 'consortium_profile', 'control_dt', 'internal_dt', 'physiology',
                 'initial_rubber', 'initial_nh4', 'ph_control_target',
+                'pf_curated',
             }
         }
         env = ConsortiumEnv(simulator=sim, **env_kwargs)
@@ -269,7 +311,8 @@ def train_agent(args):
     
     # モデルの読み込み
     options = cultivation_options(args)
-    models = load_requested_models(getattr(args, 'sbml_dir', None), options['consortium_profile'])
+    models = load_requested_models(getattr(args, 'sbml_dir', None), options['consortium_profile'],
+                                   pf_curated=options.get('pf_curated', False))
     
     # One parameter source is shared by training and evaluation factories.
     env_params = {
@@ -574,6 +617,8 @@ def main():
         command_parser.add_argument('--ph-target', type=float, default=None)
         command_parser.add_argument('--observation-schema', choices=['legacy_v1', 'metabolic_v2'], default=None)
         command_parser.add_argument('--max-specific-feed-rate', type=float, default=.1, help='audited_rates_v2 individual pump maximum (mmol/L/h)')
+        command_parser.add_argument('--pf-curated', action='store_const', const=True, default=None,
+                                    help='opt-in: apply src.pf_curation to the Pf GEM (pf-helper3 only; same as PF_CURATED=1)')
     args = parser.parse_args()
     
     if args.mode == 'train':
