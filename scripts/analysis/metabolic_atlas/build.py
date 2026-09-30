@@ -64,6 +64,7 @@ for sp in data['species']:
     if res.get('status')=='optimal':
         entry['fluxes']={k:v for k,v in res['fluxes'].items() if abs(v)>1e-9}
         entry['mass_balance_residual']=res.get('mass_balance_residual')
+        entry['uptake_limits']=res.get('uptake_limits')
     snapshot['species'][sp['short']]=entry
 snapshot['model_fingerprint']=data['model_fingerprint']
 (OUT/'flux_snapshot.json').write_text(json.dumps(snapshot,ensure_ascii=False,allow_nan=False),encoding='utf-8')

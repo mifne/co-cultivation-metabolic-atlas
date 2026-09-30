@@ -68,6 +68,7 @@ def check(short,rid,sign,ranking=False,medium_override=None,fva=False):
      mapping[pool]=r.id
    model.add_reactions(reactions)
    limits=compute_uptake_limits(medium,{short:.21},{short:mapping},{short:bounds},.025,20)[short]
+   applied_limits={}
    for pool,ex in mapping.items():
     r=model.reactions.get_by_id(ex);original=max(0,-bounds[ex][0]);c=max(0,medium.get(pool,0))
     if pool=='h2o_e':limit=min(original,1000)
@@ -75,6 +76,7 @@ def check(short,rid,sign,ranking=False,medium_override=None,fva=False):
     elif pool=='o2_e':limit=min(original,20*c/(.01+c),c/(.21*.025))
     else:limit=limits.get(pool,0)
     r.bounds=(-limit,max(0,r.upper_bound))
+    applied_limits[ex]=float(limit)
    # Close all other boundary inflows; intracellular demand sinks may only consume.
    for r in model.boundary:
     if r.id in mapping.values():continue
@@ -116,7 +118,7 @@ def check(short,rid,sign,ranking=False,medium_override=None,fva=False):
     achieved=sum(v*flux[k] for k,v in objective.items())
     if residual>1e-7 or violation>1e-7 or abs(achieved-primary.objective_value)>1e-6*max(1,abs(primary.objective_value)):raise ValueError('pFBA certificate failed')
     conditions['growth']='GEMの元の目的関数を最適化後、総絶対流量を最小化'
-    result.update(status='optimal',method='pFBA',objective=objective,objective_direction=model.objective.direction,objective_value=float(achieved),fluxes={k:float(v) for k,v in flux.items()},mass_balance_residual=residual,conditions=conditions,message='共通のpFBA解。流量ゼロは別の最適解でもゼロとは限りません。')
+    result.update(status='optimal',method='pFBA',uptake_limits=applied_limits,objective=objective,objective_direction=model.objective.direction,objective_value=float(achieved),fluxes={k:float(v) for k,v in flux.items()},mass_balance_residual=residual,conditions=conditions,message='共通のpFBA解。流量ゼロは別の最適解でもゼロとは限りません。')
     return remember(key,result)
    target=model.reactions.get_by_id(rid);model.objective=model.problem.Objective(sign*target.flux_expression,direction='max')
    solution=model.optimize()

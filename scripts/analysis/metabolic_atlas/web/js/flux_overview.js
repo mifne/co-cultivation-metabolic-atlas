@@ -23,7 +23,7 @@ const FluxOverview = (() => {
   }
 
   /* Exchange fluxes: negative = uptake, positive = secretion (the model's sign convention). */
-  function exchanges(s, fluxes, {unit = 'mmol', solvents = false, minFlux = 0} = {}) {
+  function exchanges(s, fluxes, {unit = 'mmol', solvents = false, minFlux = 0, limits = null, net = true} = {}) {
     const uptake = new Map(), secretion = new Map();
     for (const r of s.reactions) {
       if (!r.exchange) continue;
@@ -39,11 +39,28 @@ const FluxOverview = (() => {
       const row = target.get(pool) || {pool, mid, name: displayName(s, mid), value: 0, reactions: [], atBound: false};
       row.value += amount; row.reactions.push(r.id);
       // Uptake sitting exactly on the model's own lower bound is a limit, not a measured demand.
-      if (v < 0 && Number.isFinite(r.bounds[0]) && Math.abs(r.bounds[0]) < 1000 && Math.abs(v) >= 0.999 * Math.abs(r.bounds[0])) row.atBound = true;
+      const cap = limits?.[r.id] ?? (Number.isFinite(r.bounds[0]) && Math.abs(r.bounds[0]) < 1000 ? Math.abs(r.bounds[0]) : null);
+      if (v < 0 && cap !== null && Math.abs(v) >= 0.999 * cap) { row.atBound = true; row.cap = cap; }
       target.set(pool, row);
     }
+    // Inorganic ions taken up and released in another redox state (Fe3+ in, Fe2+ out) mostly cancel:
+    // report the net electron-acceptor step instead of two large bands.
+    const redox = [];
+    if (net) for (const u of [...uptake.values()]) {
+      const fu = s.metabolites[u.mid]?.formula;
+      if (!fu || /C/.test(fu.replace(/Cl|Ca|Co|Cu|Cr|Cs|Cd/g, ''))) continue;
+      for (const o of [...secretion.values()]) {
+        if (o.pool === u.pool || s.metabolites[o.mid]?.formula !== fu) continue;
+        const c = Math.min(u.value, o.value);
+        if (c <= EPS) continue;
+        redox.push({from: u.name, to: o.name, value: c});
+        u.value -= c; o.value -= c;
+        if (u.value <= EPS) uptake.delete(u.pool);
+        if (o.value <= EPS) secretion.delete(o.pool);
+      }
+    }
     const sort = m => [...m.values()].sort((a, b) => b.value - a.value);
-    return {uptake: sort(uptake), secretion: sort(secretion)};
+    return {uptake: sort(uptake), secretion: sort(secretion), redox};
   }
 
   /* Category of an internal reaction: the curated central-carbon skeleton first, then the
@@ -91,7 +108,7 @@ if (typeof document !== 'undefined' && typeof cyHost !== 'undefined') (() => {
   AtlasUI.hosts.fluxov = host;
 
   const snapshot = JSON.parse(document.getElementById('fluxSnapshot')?.textContent || 'null');
-  const opts = {unit: 'mmol', solvents: false, minFlux: 0.05};
+  const opts = {unit: 'mmol', solvents: false, minFlux: 0.05, net: true};
   let results = null;            // {short: {status, fluxes, objective_value, source}}
   let openCategory = null;
 
@@ -133,13 +150,13 @@ if (typeof document !== 'undefined' && typeof cyHost !== 'undefined') (() => {
     const data = D.species.map(s => {
       const e = results?.[s.short];
       const ok = e?.status === 'optimal' && e.fluxes;
-      return {s, e, ex: ok ? FluxOverview.exchanges(s, e.fluxes, opts) : null};
+      return {s, e, ex: ok ? FluxOverview.exchanges(s, e.fluxes, {...opts, limits: e.uptake_limits}) : null};
     });
     const pools = dir => {
       const m = new Map();
       for (const d of data) for (const r of d.ex?.[dir] || []) {
-        const row = m.get(r.pool) || {pool: r.pool, name: r.name, value: 0, atBound: false};
-        row.value += r.value; row.atBound = row.atBound || r.atBound; m.set(r.pool, row);
+        const row = m.get(r.pool) || {pool: r.pool, name: r.name, value: 0, atBound: false, cap: null};
+        row.value += r.value; row.atBound = row.atBound || r.atBound; row.cap = row.cap ?? r.cap; m.set(r.pool, row);
       }
       return [...m.values()].sort((a, b) => b.value - a.value);
     };
@@ -193,12 +210,15 @@ if (typeof document !== 'undefined' && typeof cyHost !== 'undefined') (() => {
         !d.e ? '未計算' : d.e.status !== 'optimal' ? '計算不可' : g.grows ? `成長 ${g.value.toFixed(3)} /h` : '成長なし（目的関数=0）'));
     }
     for (const r of inPools) { const p = inPos.get(r.pool); nodes.append(el('rect', {x: X_L, y: p.y, width: BAR, height: p.h, rx: 2, fill: r.atBound ? '#b4531f' : '#506b78'}));
-      labels.append(el('text', {x: X_L - 8, y: p.y + p.h / 2 + 4, 'text-anchor': 'end', class: 'fo-label'}, `${r.name} ${fmt(r.value)}${r.atBound ? ' ▲' : ''}`)); }
+      const t = el('text', {x: X_L - 8, y: p.y + p.h / 2 + 4, 'text-anchor': 'end', class: 'fo-label'}, `${r.name} ${fmt(r.value)}${r.atBound ? ' ▲' : ''}`);
+      if (r.atBound) t.append(el('title', {}, `取込上限に達しています（上限 ${fmt(r.cap)} mmol/gDW/h）。上限は培地濃度からMonod式・在庫量で決まる値で、菌の需要ではありません。`));
+      labels.append(t); }
     for (const r of outPools) { const p = outPos.get(r.pool); nodes.append(el('rect', {x: X_R, y: p.y, width: BAR, height: p.h, rx: 2, fill: '#506b78'}));
       labels.append(el('text', {x: X_R + BAR + 8, y: p.y + p.h / 2 + 4, class: 'fo-label'}, `${r.name} ${fmt(r.value)}`)); }
     const bottom = Math.max(sy, ...[...inPos.values(), ...outPos.values()].map(p => p.y + p.h)) + 30;
     svg.setAttribute('viewBox', `0 0 ${W} ${bottom}`);
-    return {svg, empty: !inPools.length && !outPools.length};
+    const redox = data.flatMap(d => (d.ex?.redox || []).map(r => ({...r, sp: d.s.short})));
+    return {svg, redox, empty: !inPools.length && !outPools.length};
   }
 
   function pathwayPanel() {
@@ -211,7 +231,7 @@ if (typeof document !== 'undefined' && typeof cyHost !== 'undefined') (() => {
       box.innerHTML = `<h3 style="color:${colors[s.short]}">${esc(s.short)}</h3>`;
       if (!e) { box.insertAdjacentHTML('beforeend', '<p class="fo-empty">未計算</p>'); wrap.append(box); continue; }
       if (e.status !== 'optimal') { box.insertAdjacentHTML('beforeend', `<p class="fo-empty">${esc(e.message || '計算できませんでした')}</p>`); wrap.append(box); continue; }
-      if (!g.grows) { box.insertAdjacentHTML('beforeend', '<p class="fo-empty">この培地では成長できず（目的関数=0）、流量はすべて0です。培地に炭素源などを加えて再計算してください。</p>'); wrap.append(box); continue; }
+      if (!g.grows) { box.insertAdjacentHTML('beforeend', '<p class="fo-empty">この培地では成長できず（目的関数=0）、流量はすべて0です。' + (mediumInUse() ? '' : '参照培地にはPfが使える炭素源（グルコース・乳酸・プロピオン酸）がなく、Pfの酸素交換も閉じています。') + '中心代謝マップで炭素源などを加えて「サーバーで再計算」してください（例：乳酸10 mMで成長）。</p>'); wrap.append(box); continue; }
       const cats = FluxOverview.pathways(s, e.fluxes, CoreMetabolism.select(s));
       const max = cats[0]?.total || 1;
       box.insertAdjacentHTML('beforeend', `<p class="fo-sub2">成長 ${g.value.toFixed(3)} /h · 活性のある内部反応 ${cats.reduce((a, c) => a + c.active, 0)}</p>`);
@@ -249,6 +269,7 @@ if (typeof document !== 'undefined' && typeof cyHost !== 'undefined') (() => {
       `<label>単位 <select id="foUnit"><option value="mmol"${opts.unit === 'mmol' ? ' selected' : ''}>mmol/gDW/h</option><option value="C"${opts.unit === 'C' ? ' selected' : ''}>C-mmol/gDW/h（炭素換算）</option></select></label>` +
       `<label>最小流量 <select id="foMin">${[0.01, 0.05, 0.1, 0.5, 1].map(v => `<option value="${v}"${opts.minFlux === v ? ' selected' : ''}>${v}</option>`).join('')}</select></label>` +
       `<label><input type="checkbox" id="foSolv"${opts.solvents ? ' checked' : ''}> 水・H⁺・CO₂も表示</label>` +
+      `<label><input type="checkbox" id="foNet"${opts.net ? ' checked' : ''}> 同じ元素の取込と分泌（Fe³⁺→Fe²⁺）は相殺</label>` +
       '<button type="button" id="foRecalc">サーバーで再計算</button><span id="fluxOvNote" role="status"></span></div>' +
       '<p class="fo-legend"><span class="fo-dot" style="background:#506b78"></span>成分　<span class="fo-dot" style="background:#b4531f"></span>▲ モデル既定の取込上限に達している成分（需要ではなく上限で決まった値）</p>';
     host.append(head);
@@ -258,13 +279,20 @@ if (typeof document !== 'undefined' && typeof cyHost !== 'undefined') (() => {
     if (sk.empty) skWrap.innerHTML = '<p class="fo-empty">表示できる交換流量がありません。閾値を下げるか、培地条件を確認してください。</p>';
     skWrap.append(sk.svg);
     host.append(skWrap);
+    if (sk.redox.length) {
+      const rn = document.createElement('p');
+      rn.className = 'fo-redox';
+      rn.innerHTML = '相殺した往復：' + sk.redox.map(r => `${esc(r.sp)}：${esc(r.from)}の取込と${esc(r.to)}の分泌 ${fmt(r.value)}（酸化還元による電子の受け渡しで、正味の物質収支はほぼ0）`).join('；');
+      host.append(rn);
+    }
     const h2 = document.createElement('h3');
     h2.className = 'fo-h3';
     h2.innerHTML = '代謝カテゴリごとの反応流量 <small>Σ|v|（mmol/gDW/h）。カテゴリ間で保存される「流れ」ではなく、そこを通る反応活性の目安です。行をクリックで上位反応。</small>';
     host.append(h2, pathwayPanel());
     const note = document.createElement('p');
     note.className = 'fo-foot';
-    note.textContent = '参照培地の炭素源は少量のアミノ酸・ヌクレオシドのみで、鉄の酸化還元など数値的な往復（例：Fe³⁺取込とFe²⁺分泌）が含まれることがあります。生理的な予測ではなく、モデルの制約下での一つの最適解です。';
+    note.innerHTML = '<strong>読み方の注意：</strong>参照培地の炭素源は少量のアミノ酸・ヌクレオシドだけで、酸素の取込が上限に張り付いています。そのため、余った還元力を捨てる経路（Fe³⁺→Fe²⁺の還元、CO・バリンの分泌、窒素の放出など）が最適解に入り、大きな交換流量として現れます。' +
+      'OR16での感度計算では、Fe²⁺・CO・バリンの分泌を禁じると成長が4〜33%下がりました。数値は元素収支が閉じた最適解ですが、生理的な予測ではなく、このモデルと取込上限ルール（Monod式×在庫量）の下での一つの解です。▲は上限で決まった取込です。';
     host.append(note);
   }
 
@@ -272,6 +300,7 @@ if (typeof document !== 'undefined' && typeof cyHost !== 'undefined') (() => {
     if (e.target.id === 'foUnit') opts.unit = e.target.value;
     else if (e.target.id === 'foMin') opts.minFlux = Number(e.target.value);
     else if (e.target.id === 'foSolv') opts.solvents = e.target.checked;
+    else if (e.target.id === 'foNet') opts.net = e.target.checked;
     else return;
     render();
   });

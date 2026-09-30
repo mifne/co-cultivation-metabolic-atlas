@@ -16,17 +16,25 @@ for (const s of D.species) {
   if (!F.growth(e).grows) { assert.equal(s.short, 'Pf', 'only Pf is expected not to grow in the reference medium'); continue; }
   const fl = e.fluxes;
   // Exchange totals equal the exchange fluxes (with solvents included, mmol basis).
-  const ex = F.exchanges(s, fl, {unit: 'mmol', solvents: true});
+  const ex = F.exchanges(s, fl, {unit: 'mmol', solvents: true, net: false});
   const up = ex.uptake.reduce((a, r) => a + r.value, 0), sec = ex.secretion.reduce((a, r) => a + r.value, 0);
   let up2 = 0, sec2 = 0;
   for (const r of s.reactions) if (r.exchange) { const v = fl[r.id] || 0; if (Math.abs(v) > 1e-6) (v < 0 ? (up2 -= v) : (sec2 += v)); }
   assert(Math.abs(up - up2) < 1e-9 && Math.abs(sec - sec2) < 1e-9, s.short + ' exchange totals');
   assert(ex.uptake.every(r => r.value > 0) && ex.secretion.every(r => r.value > 0));
+  // Redox pairs of the same element are netted; without netting they stay as two bands.
+  const raw = F.exchanges(s, fl, {unit: 'mmol', solvents: false, net: false}), netted = F.exchanges(s, fl, {unit: 'mmol', solvents: false, net: true});
+  const sum = a => a.reduce((x, r) => x + r.value, 0);
+  assert(Math.abs((sum(raw.uptake) - sum(netted.uptake)) - (sum(raw.secretion) - sum(netted.secretion))) < 1e-9, 'netting removes equal amounts from both sides');
+  for (const r of netted.redox) assert(r.value > 0);
+  if (s.short === 'OR16') assert(netted.redox.some(r => /Fe/.test(r.from) && /Fe/.test(r.to)), 'OR16 Fe3+/Fe2+ pair is netted');
+  // Limit flag: an uptake on its applied limit is marked.
+  if (e.uptake_limits) { const lim = F.exchanges(s, fl, {unit: 'mmol', solvents: false, limits: e.uptake_limits, net: false}); assert(lim.uptake.some(r => r.atBound), s.short + ' has limit-bound uptakes'); }
   // Solvents are hidden unless asked for.
-  const hidden = F.exchanges(s, fl, {unit: 'mmol', solvents: false});
+  const hidden = F.exchanges(s, fl, {unit: 'mmol', solvents: false, net: false});
   assert(!hidden.uptake.some(r => /^h2o_/.test(r.pool)), 'water hidden by default');
   // Carbon-weighted view drops carbon-free pools (O2, ions).
-  const cw = F.exchanges(s, fl, {unit: 'C', solvents: true});
+  const cw = F.exchanges(s, fl, {unit: 'C', solvents: true, net: false});
   assert(!cw.uptake.some(r => r.pool === 'o2_e') && cw.uptake.length < ex.uptake.length);
   // Pathway totals: sum of |flux| over active internal reactions, each reaction counted once.
   const cats = F.pathways(s, fl, C.select(s));
