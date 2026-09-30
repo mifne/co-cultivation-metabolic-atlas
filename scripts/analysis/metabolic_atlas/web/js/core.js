@@ -54,6 +54,16 @@ const CoreMetabolism = (() => {
   ring.forEach((k,i)=>{const a=(-90+i*45)*Math.PI/180;points[k]=[TCA_CENTER[0]+TCA_RADIUS*Math.cos(a),TCA_CENTER[1]+TCA_RADIUS*Math.sin(a)]});
   points.oxs=[1750,514];
   const currency = /^(?:(?:h|h2o|atp|adp|amp|gtp|gdp|pi|ppi|nad|nadh|nadp|nadph|coa|co2|hco3|o2|fad|fadh2|q8|q8h2|mqn8|mql8|2dmmq8|2dmmql8|fdxox|fdxrd)_[cep]\d*|(?:S_)?cpd(?:00001|00002|00003|00004|00005|00006|00007|00008|00009|00010|00011|00012|00015|00018|00031|00038|00067|00982|11620|11621|15499|15500|15560|15561)_\w+)$/;
+  // What the model does with a metabolite once it is inside the cell: transporters and exchanges are
+  // not uses, so only reactions that really consume or produce it count.
+  function terminalFate(s,mid){
+    const base=mid.replace(/_[cep]\d*$/,''),objective=new Set(Object.keys(s.objective||{}));
+    const users=s.reactions.filter(r=>r.stoich[mid]!==undefined&&!r.exchange&&!Object.keys(r.stoich).some(m=>m!==mid&&m.replace(/_[cep]\d*$/,'')===base));
+    if(!users.length)return {kind:'none',users:[],label:'',text:mid+' を使う反応はモデルにありません。中心代謝へは接続しません。'};
+    if(users.every(r=>objective.has(r.id)))return {kind:'biomass',users:users.map(r=>r.id),label:'→ バイオマスのみ',text:'モデル上、'+mid+' を使う反応は '+users.map(r=>r.id).join('・')+'（バイオマス）のみです。中心代謝へは接続しません。'};
+    const shown=users.slice(0,3).map(r=>r.id).join('・');
+    return {kind:'other',users:users.map(r=>r.id),label:'',text:mid+' は '+shown+(users.length>3?' ほか '+users.length+' 反応':'')+' で使われますが、選定した中心代謝への接続は探索範囲内で見つかりません。'};
+  }
   function select(s){
     const mids=Object.fromEntries(Object.entries(aliases).map(([k,[bigg,seed]])=>[k,s.short==='Pf'?'S_cpd'+seed+'_c0':bigg]));
     const rs=new Map(s.reactions.map(r=>[r.id,r])),reactions=[],missing=[];
@@ -126,7 +136,8 @@ const CoreMetabolism = (() => {
       }
     }
     const path=fallback||{ex:exchanges[0],mid:Object.keys(exchanges[0].stoich)[0],steps:[]};
-    return {...path,pool,status:fallback?'imported':'unconnected',reason:fallback?'細胞内への取込まで表示。選定した中心代謝への接続は探索範囲内で見つかりません。':'交換反応まで表示。中心代謝への接続は探索範囲内で見つかりません。'};
+    const fate=fallback?terminalFate(s,path.mid):null;
+    return {...path,pool,status:fallback?'imported':'unconnected',fate,reason:fallback?'細胞内への取込まで表示。'+(fate?fate.text:'選定した中心代謝への接続は探索範囲内で見つかりません。'):'交換反応まで表示。中心代謝への接続は探索範囲内で見つかりません。'};
   }
   const shortLabels=Object.fromEntries(Object.entries(aliases).map(([key,[mid]])=>[key,mid.replace(/_c$/,'')]));
   return {select,connect,makeIndex,currency,points,shortLabels,tcaRing:{center:TCA_CENTER,radius:TCA_RADIUS}};
@@ -170,6 +181,50 @@ if(typeof document!=='undefined'){
     mapCy.elements().remove();flowRender();separateSideCompounds();applyCentralGeometry();centralFit();
   }
   function centralFit(){if(!flowState?.coreMode)return;mapCy.resize();mapCy.fit(mapCy.elements().filter(e=>e.visible()),48);scheduleSessionSave()}
+  // Node ids a nutrient connection added to the map (from the saved chain, or recomputed for older sessions).
+  function nutrientChain(st,entry){
+    if(Array.isArray(entry.chain))return entry.chain;
+    if(!entry.target)return [];
+    const result=CoreMetabolism.connect(st.s,entry.pool,st.coreSpec,st.coreIndex);
+    if(!result.ex)return [];
+    return ['feed_'+entry.pool,branchEnsure(st,result.ex,1),'m_'+Object.keys(result.ex.stoich)[0],...result.steps.flatMap(x=>[branchEnsure(st,x.r,x.sign),'m_'+x.to])];
+  }
+  // Remove a nutrient added earlier. Central-skeleton nodes and anything another nutrient still uses stay.
+  // This only edits the display; the FBA medium is untouched.
+  function removeNutrient(st,pool){
+    const index=st.coreConnections.findIndex(x=>x.pool===pool);
+    if(index<0)return false;
+    const [entry]=st.coreConnections.splice(index,1);
+    const isCore=id=>{const d=st.nodes.get(id)?.data;return !!(d?.coreKey||d?.coreReaction)};
+    const kept=new Set(st.coreConnections.flatMap(x=>nutrientChain(st,x)));
+    const gone=new Set(nutrientChain(st,entry).filter(id=>!isCore(id)&&!kept.has(id)));
+    const edgeById=new Map(st.edges.map(e=>[e.data.id,e]));
+    const live=id=>st.keep.has(id)&&!gone.has(id);
+    // Required substrates and side products that only served the removed reactions.
+    for(let changed=true;changed;){
+      changed=false;
+      for(const id of [...gone])for(const eid of [...st.keepEdges])if(edgeById.get(eid)&&(edgeById.get(eid).data.source===id||edgeById.get(eid).data.target===id)){st.keepEdges.delete(eid);changed=true}
+      for(const id of st.keep){
+        if(gone.has(id)||isCore(id)||kept.has(id))continue;
+        const linked=[...st.keepEdges].some(eid=>{const e=edgeById.get(eid);return e&&(e.data.source===id&&live(e.data.target)||e.data.target===id&&live(e.data.source))});
+        if(!linked){gone.add(id);changed=true}
+      }
+    }
+    for(const id of gone){st.keep.delete(id);st.layoutDone.delete(id);st.expanded.delete(id)}
+    for(const id of [...st.visibleProducts]){
+      const produced=(st.incoming.get(id)||[]).some(e=>st.keep.has(e.data.source)&&st.nodes.get(e.data.source)?.data.reaction);
+      if(!st.keep.has(id)&&!produced)st.visibleProducts.delete(id);
+    }
+    st.mediumRoots.delete(pool);
+    const roots=[...st.mediumRoots].map(p=>'feed_'+p);st.dist=new Map(roots.map(id=>[id,0]));st.parent=new Map();st.queue=[...roots];
+    for(let i=0;i<st.queue.length;i++)for(const e of st.out.get(st.queue[i])||[]){const to=e.data.target;if(!st.dist.has(to)){st.dist.set(to,st.dist.get(st.queue[i])+1);st.parent.set(to,{id:st.queue[i],edge:e.data.id});st.queue.push(to)}}
+    return true;
+  }
+  function centralRemoveNutrient(st,pool){
+    if(!removeNutrient(st,pool))return false;
+    flowRender();separateSideCompounds();applyCentralGeometry();refreshCentralSummary();
+    return true;
+  }
   function centralAddNutrients(st,poolsToAdd){
     const added=[];
     for(const pool of poolsToAdd){
@@ -192,7 +247,10 @@ if(typeof document!=='undefined'){
         st.keep.add(id);if(i)st.keepEdges.add(branchConnect(st,chain[i-1],id));
         if(n.data.reaction&&!n.data.coreReaction){n.data.nutrientConnector=true;ensureRequiredSubstrateRecords(id);branchProducts(st,id)}
       }
-      st.mediumRoots.add(pool);st.coreConnections.push({pool,status:result.status,reason:result.reason,target:result.mid,reactions:result.steps.map(x=>x.r.id)});added.push(pool);
+      // A dead end that is a real property of the model is labelled as such, not left looking unfinished.
+      const endNode=st.nodes.get(terminal);
+      if(result.status==='imported'&&result.fate?.label&&endNode&&!String(endNode.data.label).includes(result.fate.label))endNode.data.label=String(endNode.data.label||result.mid)+'\n'+result.fate.label;
+      st.mediumRoots.add(pool);st.coreConnections.push({pool,status:result.status,reason:result.reason,target:result.mid,chain:chain.slice(),reactions:result.steps.map(x=>x.r.id)});added.push(pool);
     }
     // Root paths remain available to legacy search/branch selection, without reflowing the core.
     const roots=[...st.mediumRoots].map(pool=>'feed_'+pool);st.dist=new Map(roots.map(id=>[id,0]));st.parent=new Map();st.queue=[...roots];
@@ -241,7 +299,8 @@ if(typeof document!=='undefined'){
     const counts={};for(const x of st.coreSpec.reactions)counts[x.group]=(counts[x.group]||0)+1;
     box.innerHTML='<p>'+esc(names[st.s.short])+' · 中心代謝 '+st.coreSpec.reactions.length+'反応</p><p>栄養を選ぶと、交換・輸送・変換反応を中心代謝へ接続します。</p><p class="coreNote">対応なし：'+st.coreSpec.missing.map(x=>esc(x.label)).join('、')+'。未登録の区間は補っていません。</p>'+
       '<details><summary>採用経路と未登録の区間</summary><p>解糖系・糖新生 '+(counts.EMP||0)+' / PPP '+(counts.PPP||0)+' / ED '+(counts.ED||0)+' / TCA関連 '+(counts.TCA||0)+'</p><p>'+st.coreSpec.missing.map(x=>esc(x.label)+'：'+esc(x.reason)).join('<br>')+'</p><p>モデルの登録状況であり、実細胞の欠損を示すものではありません。</p></details>'+
-      '<div id="centralConnections">'+st.coreConnections.map(x=>'<p><strong>'+esc(x.pool)+'</strong> → '+esc(x.target||'接続なし')+'<br><small>'+esc(x.reason)+'</small></p>').join('')+'</div>';
+      '<div id="centralConnections">'+st.coreConnections.map(x=>'<p class="coreConn"><strong>'+esc(x.pool)+'</strong> → '+esc(x.target||'接続なし')+' <button type="button" class="coreRemove" data-remove-pool="'+esc(x.pool)+'" aria-label="'+esc(x.pool)+'を表示から削除">削除</button><br><small>'+esc(x.reason)+'</small></p>').join('')+(st.coreConnections.length?'<p class="coreNote">削除は表示から外すだけで、FBAの培地濃度は変わりません。</p>':'')+'</div>';
+    $('centralConnections').onclick=e=>{const b=e.target.closest?.('[data-remove-pool]');if(b)centralRemoveNutrient(flowState,b.dataset.removePool)};
     if($('mediumRootsSummary'))$('mediumRootsSummary').textContent=st.mediumRoots.size?'栄養の入口：'+[...st.mediumRoots].join('、'):'栄養の入口は未選択';
   }
   function installCentralControls(){

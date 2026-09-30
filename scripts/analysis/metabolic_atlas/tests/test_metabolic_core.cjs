@@ -70,3 +70,26 @@ const retained=ctx.st.keep.size;
 ctx.centralAddNutrients(ctx.st,['glc__D_e']);assert.equal(ctx.st.keep.size,retained);
 assert.equal(ctx.st.coreConnections.length,3);
 console.log('PASS: central skeleton stays fixed during multiple nutrient additions; duplicate addition is idempotent');
+
+// Removing a nutrient: back to the state before it was added, without touching the core or other nutrients.
+{
+  ctx.flowRender=()=>{};
+  const snap=()=>JSON.stringify({keep:[...ctx.st.keep].sort(),edges:[...ctx.st.keepEdges].sort(),roots:[...ctx.st.mediumRoots].sort(),conn:ctx.st.coreConnections.map(x=>x.pool)});
+  const st=ctx.st;
+  const both=snap();
+  assert.equal(ctx.removeNutrient(st,'nh4_e'),true);
+  assert(!st.mediumRoots.has('nh4_e')&&!st.keep.has('feed_nh4_e'));
+  assert(st.mediumRoots.has('glc__D_e')&&st.mediumRoots.has('glu__L_e'));
+  for(const [id,p] of before)assert(st.keep.has(id)&&JSON.stringify(st.nodes.get(id).position)===JSON.stringify(p),'Core changed by removal: '+id);
+  assert.equal(ctx.removeNutrient(st,'nh4_e'),false,'removing twice is a no-op');
+  ctx.centralAddNutrients(st,['nh4_e']);
+  assert.equal(snap(),both,'re-adding after removal restores the same display state');
+  // Removing everything returns to exactly the bare skeleton (fresh state for comparison).
+  const fresh=ctx.flowIndex('NS21','glc__D_e');ctx.seedCentralMetabolism(fresh);
+  const bare=JSON.stringify({keep:[...fresh.keep].sort(),edges:[...fresh.keepEdges].sort()});
+  ctx.centralAddNutrients(fresh,['glc__D_e','glu__L_e','nh4_e']);
+  for(const p of ['glu__L_e','glc__D_e','nh4_e'])ctx.removeNutrient(fresh,p);
+  assert.equal(fresh.mediumRoots.size,0);assert.equal(fresh.coreConnections.length,0);
+  assert.equal(JSON.stringify({keep:[...fresh.keep].sort(),edges:[...fresh.keepEdges].sort()}),bare,'skeleton restored exactly');
+  console.log('PASS: nutrient removal leaves the skeleton and other nutrients intact, and is reversible');
+}
