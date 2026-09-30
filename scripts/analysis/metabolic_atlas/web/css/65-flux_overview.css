@@ -97,3 +97,5 @@ body[data-layer="fluxov"] #mappane{grid-template-columns:minmax(0,1fr)}
 .coreToggle.switch input:focus-visible+.sw-track{outline:2px solid #2aa198;outline-offset:2px}
 .coreToggle.switch .sw-text{display:flex;flex-direction:column;gap:1px;min-width:0}
 .coreToggle.switch small{color:#8aa0a8;font-size:11px}
+#structurePreview:not([hidden]){pointer-events:auto}
+#structurePreview{user-select:text}

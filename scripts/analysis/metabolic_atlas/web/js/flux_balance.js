@@ -72,6 +72,11 @@ if (typeof showCompoundStructure !== 'undefined') (() => {
     structurePreview.hidden = false;
   }
 
+  // The preview stays open while the pointer is on it (it used to be click-through and vanished
+  // as soon as the cursor left the node), so its contents can be read and scrolled.
+  structurePreview.addEventListener('mouseenter', () => { clearTimeout(toolsTimer); toolsTimer = null; });
+  structurePreview.addEventListener('mouseleave', () => { clearTimeout(toolsTimer); toolsTimer = setTimeout(hideCompoundTools, 400); });
+
   const base = showCompoundStructure;
   showCompoundStructure = async function (n, token) {
     if (!structureMode && fluxReady() && token === structureToken) {
