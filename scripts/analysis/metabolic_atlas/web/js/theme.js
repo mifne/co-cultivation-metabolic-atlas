@@ -13,6 +13,7 @@
     {selector:'node',style:{'font-family':FONT}},
     {selector:'node[kind="fm"]',style:{'text-outline-color':'#fbfcfc','text-outline-width':4,'text-outline-opacity':1,'text-background-opacity':0,color:'#2b4653','font-weight':600,'border-width':3,'border-color':'#8aa1ab','background-color':'#fff'}},
     {selector:'node[kind="fr"]',style:{color:'#38566a','font-weight':700,'text-background-color':'#ffffff','text-background-opacity':.96,'text-background-shape':'roundrectangle','text-background-padding':4,'text-border-width':1,'text-border-color':'#cbd9de','text-border-opacity':1}},
+    {selector:'node[kind="fr"]',style:{shape:'round-rectangle',width:12,height:12,'background-color':'#476677','border-width':0}},
     {selector:'node[kind="feed"]',style:{'font-family':FONT,'font-weight':700,color:'#0f5f57','text-outline-color':'#fbfcfc','text-outline-width':4}},
     {selector:'node[kind="fold"]',style:{'background-color':'#e7eef0',color:'#4a6673','font-weight':600}},
     {selector:'node[coreKey]',style:{width:32,height:32,'text-margin-y':14}},
@@ -86,6 +87,47 @@
     });
   }
 
+  // Straight edges must not run through another metabolite's name. Detour those (only) with a
+  // two-bend route that leaves horizontally and enters the target at a steep angle.
+  function labelRect(n, fs) {
+    const p = n.position(), w = String(n.data('mid') || n.data('coreKey')).length * fs * 0.3;
+    const k = n.data('coreKey'), side = VERTICAL.has(k) || RING.has(k);
+    return side ? {x1: p.x - 16, x2: p.x + 2 * (w + 26), y1: p.y - fs, y2: p.y + fs}
+                : {x1: p.x - w - 6, x2: p.x + w + 6, y1: p.y + 8, y2: p.y + fs + 34};
+  }
+  function segHitsRect(a, b, r) {
+    let t0 = 0, t1 = 1;
+    const dx = b.x - a.x, dy = b.y - a.y;
+    for (const [p, q] of [[-dx, a.x - r.x1], [dx, r.x2 - a.x], [-dy, a.y - r.y1], [dy, r.y2 - a.y]]) {
+      if (p === 0) { if (q < 0) return false; continue; }
+      const t = q / p;
+      if (p < 0) { if (t > t1) return false; if (t > t0) t0 = t; } else { if (t < t0) return false; if (t < t1) t1 = t; }
+    }
+    return true;
+  }
+  function routeAroundLabels(fs) {
+    if (!flowState?.coreMode) return;
+    const metabolites = mapCy.nodes('[coreKey]').filter(n => n.visible());
+    mapCy.edges().forEach(e => {
+      if (e.hasClass('coreCofactorHidden') || e.style('curve-style') !== 'straight') return;
+      const a = e.source(), b = e.target(), rn = a.data('reaction') ? a : b.data('reaction') ? b : null;
+      const mn = rn === a ? b : a;
+      if (!rn || !mn.data('coreKey')) return;
+      const pa = a.position(), pb = b.position();
+      const hit = metabolites.some(m => m.id() !== mn.id() && segHitsRect(pa, pb, labelRect(m, fs)));
+      if (!hit) return;
+      // Bend at the reaction's own height, ~100 units before the metabolite, then go straight in.
+      const from = rn.position(), to = mn.position(), sign = to.x >= from.x ? 1 : -1;
+      const bend = {x: to.x - sign * 100, y: from.y};
+      const S = rn === a ? pa : pb, T = rn === a ? pb : pa;
+      const dx = T.x - S.x, dy = T.y - S.y, L2 = dx * dx + dy * dy, L = Math.sqrt(L2);
+      const w = ((bend.x - S.x) * dx + (bend.y - S.y) * dy) / L2;
+      const d = ((bend.x - S.x) * (-dy) + (bend.y - S.y) * dx) / L;
+      // Cytoscape measures the distance to the right of the source->target direction.
+      e.style({'curve-style': 'segments', 'segment-weights': [w], 'segment-distances': [d]});
+    });
+  }
+
   function bumpTypography() {
     if (typeof mapCy === 'undefined' || !mapCy || !flowState?.coreMode) return;
     const z = mapCy.zoom();
@@ -93,6 +135,7 @@
       const fs = Math.min(46, Math.max(19, 10.5 / z));
       mapCy.nodes('[coreKey]').style({'font-size': fs});
       placeCoreLabels(fs);
+      routeAroundLabels(fs);
       mapCy.nodes('[kind="fr"]').style({'font-size': Math.min(28, Math.max(16, 9 / z))});
     });
   }
