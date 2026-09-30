@@ -13,7 +13,7 @@
     {selector:'node',style:{'font-family':FONT}},
     {selector:'node[kind="fm"]',style:{'text-outline-color':'#fbfcfc','text-outline-width':4,'text-outline-opacity':1,'text-background-opacity':0,color:'#2b4653','font-weight':600,'border-width':3,'border-color':'#8aa1ab','background-color':'#fff'}},
     {selector:'node[kind="fr"]',style:{color:'#38566a','font-weight':700,'text-background-color':'#ffffff','text-background-opacity':.96,'text-background-shape':'roundrectangle','text-background-padding':4,'text-border-width':1,'text-border-color':'#cbd9de','text-border-opacity':1}},
-    {selector:'node[kind="fr"]',style:{shape:'round-rectangle',width:12,height:12,'background-color':'#476677','border-width':0}},
+    {selector:'node[kind="fr"]',style:{shape:'round-rectangle',width:16,height:16,'background-color':'#476677','border-width':0,'text-margin-y':-8,'z-index':20}},
     {selector:'node[kind="feed"]',style:{'font-family':FONT,'font-weight':700,color:'#0f5f57','text-outline-color':'#fbfcfc','text-outline-width':4}},
     {selector:'node[kind="fold"]',style:{'background-color':'#e7eef0',color:'#4a6673','font-weight':600}},
     {selector:'node[coreKey]',style:{width:32,height:32,'text-margin-y':14}},
@@ -80,6 +80,9 @@
           : {'text-margin-x': 0, 'text-margin-y': dy > 0 ? gap : -gap};
         if (pos['text-margin-y'] === 0) pos['text-valign'] = 'center';
         else pos['text-valign'] = dy > 0 ? 'bottom' : 'top';
+      } else if (k === 'g6p') {
+        // PGI leaves g6p to the right, G6PDH2r below and the nutrient chain to the left.
+        pos = {'text-margin-x': 0, 'text-margin-y': -gap, 'text-valign': 'top'};
       } else if (VERTICAL.has(k)) {
         pos = {'text-margin-x': half(n), 'text-margin-y': 0, 'text-valign': 'center'};
       }
