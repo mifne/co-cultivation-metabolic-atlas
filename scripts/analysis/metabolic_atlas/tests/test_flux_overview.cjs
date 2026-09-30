@@ -46,4 +46,10 @@ for (const s of D.species) {
   console.log(s.short, 'growth', F.growth(e).value.toFixed(3), 'uptake pools', ex.uptake.length, 'categories', cats.length, 'top:', cats.slice(0, 3).map(c => c.category + ' ' + c.total.toFixed(1)).join(' | '));
 }
 assert.equal(F.carbons('C6H12O6'), 6); assert.equal(F.carbons('CO2'), 1); assert.equal(F.carbons('Cl'), 0); assert.equal(F.carbons('Ca'), 0); assert.equal(F.carbons(null), 0);
+// Prepared media: Pf needs a carbon source it can use; the comparison scenarios are consistent.
+assert(snap.scenarios.length >= 3 && snap.scenarios[0].id === 'reference');
+const grow = (id, sp) => F.growth(snap.scenarios.find(x => x.id === id).species[sp]).grows;
+assert(!grow('reference', 'Pf') && grow('lac', 'Pf') && grow('glc', 'Pf'), 'Pf grows on lactate/glucose, not in the reference medium');
+assert(grow('reference', 'OR16') && grow('reference', 'NS21'));
+for (const sc of snap.scenarios) for (const s of D.species) { const e = sc.species[s.short]; if (e.status === 'optimal') assert(e.mass_balance_residual < 1e-7, sc.id + ' ' + s.short + ' mass balance'); }
 console.log('PASS flux overview aggregation');

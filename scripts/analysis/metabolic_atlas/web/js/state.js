@@ -7,6 +7,19 @@
  */
 const AtlasUI = {view: 'map', layer: 'cy', failures: 0};
 const VIEWS = ['map', 'search', 'source'];
+// Pane heading: the overview layers have fixed titles; the graph layers keep whatever the
+// map code last wrote (the core map sets its own, per species).
+const LAYER_TITLES = {home: '概観', sankey: 'モデル全体の概観 · 反応の内訳', fluxov: 'FBAの流れ · 培地成分から代謝へ'};
+let mapTitle = null;
+function paneTitle() { return document.querySelector('.panelhead h2'); }
+function watchPaneTitle() {
+  const h = paneTitle();
+  if (!h || h._watched) return;
+  h._watched = true;
+  const keep = () => { if (!Object.values(LAYER_TITLES).includes(h.textContent)) mapTitle = h.textContent; };
+  keep();
+  new MutationObserver(keep).observe(h, {childList: true, characterData: true, subtree: true});
+}
 
 function setLayer(layer) {
   AtlasUI.layer = layer;
@@ -15,6 +28,12 @@ function setLayer(layer) {
   if (layer === 'sankey' && typeof cyHost !== 'undefined') cyHost.style.display = 'none';
   for (const [name, h] of Object.entries(AtlasUI.hosts || {})) h.hidden = name !== layer;
   document.body.dataset.layer = layer;
+  watchPaneTitle();
+  const h = paneTitle();
+  if (h) {
+    if (LAYER_TITLES[layer]) h.textContent = LAYER_TITLES[layer];
+    else if (mapTitle) h.textContent = mapTitle;
+  }
 }
 
 function setView(view) {
@@ -27,10 +46,11 @@ function setView(view) {
   $('export').style.display = view === 'map' ? 'block' : 'none';
   // The map view has two tabs: the fixed overview (mapTab) and the medium-driven flow (flowTab).
   const inFlow = typeof flowMode !== 'undefined' && flowMode;
-  const overview = AtlasUI.layer === 'fluxov';
-  $('mapTab').classList.toggle('active', view === 'map' && !inFlow && !overview);
-  $('flowTab')?.classList.toggle('active', view === 'map' && inFlow && !overview);
-  $('fluxTab')?.classList.toggle('active', view === 'map' && overview);
+  // Layers that replace the map pane (home, FBA overview) own their tab; the map tabs stay off.
+  const special = {fluxov: 'fluxTab', home: 'homeTab'}[AtlasUI.layer];
+  $('mapTab').classList.toggle('active', view === 'map' && !inFlow && !special);
+  $('flowTab')?.classList.toggle('active', view === 'map' && inFlow && !special);
+  for (const id of ['fluxTab', 'homeTab']) $(id)?.classList.toggle('active', view === 'map' && special === id);
   $('searchTab').classList.toggle('active', view === 'search');
   $('sourceTab').classList.toggle('active', view === 'source');
 }

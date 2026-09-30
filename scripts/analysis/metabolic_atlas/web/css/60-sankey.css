@@ -1,5 +1,5 @@
 /* Sankey overview */
-body[data-layer="sankey"] #mappane{grid-template-columns:minmax(0,1fr)}
+body[data-layer="sankey"] #mappane,body[data-layer="home"] #mappane{grid-template-columns:minmax(0,1fr)}
 #sankeyHost{padding:8px 24px 20px;background:#fff}
 #sankeyHost[hidden]{display:none}
 #sankeySvg{width:100%;height:auto;display:block;max-height:calc(100vh - 380px);min-height:340px}
@@ -16,6 +16,10 @@ body[data-layer="sankey"] #mappane{grid-template-columns:minmax(0,1fr)}
 .sk-actions button,.sk-pools button,#sankeyDetail button{padding:5px 12px;font-size:12.5px;border-radius:999px}
 #sankeyDetail{margin-top:10px;padding:12px 14px;border:1px solid #e1e8eb;border-radius:10px;background:#f7fafa;font-size:13px;line-height:2;color:#3b5560}
 @media(max-width:850px){#sankeyHost{padding:8px 12px 16px}#sankeySvg{min-height:300px}}
-body[data-layer="sankey"] #atlasLegend,body[data-layer="fluxov"] #atlasLegend{display:none}
+body[data-layer="sankey"] #atlasLegend,body[data-layer="fluxov"] #atlasLegend,body[data-layer="home"] #atlasLegend{display:none}
 #groupChip{border-radius:999px;font-size:12px;padding:4px 12px;background:#e2f2ef;border-color:#a9d2ca;color:#0f5f57}
 #groupChip[hidden]{display:none}
+/* The map legend and note describe the reaction graph, not the overview pages. */
+body[data-layer="sankey"] #mappane .legend,body[data-layer="sankey"] #mappane .note,
+body[data-layer="fluxov"] #mappane .legend,body[data-layer="fluxov"] #mappane .note,
+body[data-layer="home"] #mappane .legend,body[data-layer="home"] #mappane .note{display:none}

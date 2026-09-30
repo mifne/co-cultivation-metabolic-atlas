@@ -43,3 +43,13 @@ body[data-layer="fluxov"] #mappane{grid-template-columns:minmax(0,1fr)}
 .fo-legend{margin:4px 0 0;font-size:12px;color:#657980}
 .fo-dot{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
 .fo-redox{margin:6px 0 0;font-size:12px;color:#657980}
+
+.fo-compare{border-collapse:collapse;margin:10px 0 6px;font-size:12.5px;min-width:min(520px,100%)}
+.fo-compare caption{text-align:left;color:#657980;font-size:12px;padding-bottom:4px}
+.fo-compare th,.fo-compare td{padding:5px 12px;border-bottom:1px solid #e8eef0;text-align:right;font-variant-numeric:tabular-nums}
+.fo-compare th:first-child,.fo-compare td:first-child{text-align:left}
+.fo-compare tbody tr{cursor:pointer}
+.fo-compare tbody tr:hover{background:#eef4f5}
+.fo-compare tr.on{background:#e2f2ef;font-weight:700}
+.fo-g0{color:#a0642a}
+.fo-na{color:#aab8bd}

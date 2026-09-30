@@ -173,10 +173,7 @@
     $('sankeyDetail').innerHTML = html;
   }
 
-  let saved = null;
   function enter() {
-    if (!saved) saved = document.querySelector('.panelhead h2').textContent;
-    document.querySelector('.panelhead h2').textContent = 'モデル全体の概観 · 反応の内訳';
     flowCanvasSuspended = true;
     flowMode = false;          // the flow (core) map is not the visible view any more
     if (!host.firstChild) render();
@@ -188,11 +185,10 @@
   const baseSetLayer = setLayer;
   setLayer = function (layer) {
     baseSetLayer(layer);
-    const wide = layer === 'sankey' || layer === 'fluxov';
+    const wide = ['sankey', 'fluxov', 'home'].includes(layer);
     host.hidden = layer !== 'sankey';
     controls.style.display = wide ? 'none' : '';
     $('context').style.display = wide ? 'none' : '';
-    if (layer !== 'sankey' && saved) { document.querySelector('.panelhead h2').textContent = saved; saved = null; }
   };
 
   $('mapTab').onclick = () => { tab('map'); enter(); };

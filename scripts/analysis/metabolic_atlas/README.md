@@ -9,6 +9,7 @@ metabolic_atlas/
 │   ├── js/                   読み込み順は build.py の JS_MODULES。後段が前段の関数をラップする
 │   │   ├── 00-overview.js    全体図・反応検索・出典タブ
 │   │   ├── state.js          画面状態（setView/setLayer）と問題表示の帯
+│   │   ├── home.js           「概観」: 画面の構成・前提・培地別の成長への入口（初期表示）
 │   │   ├── flux_overview.js  「FBAの流れ」: 培地成分の取込・分泌（Sankey）と代謝カテゴリ別の反応流量
 │   │   ├── sankey.js         「全体マップ」: 菌種→反応分類のSankey（軽量SVG、反応数の内訳）
 │   │   ├── cytoscape.js / escher.js   Cytoscape基盤（中心代謝マップ用）とEscher（反応周辺の経路）

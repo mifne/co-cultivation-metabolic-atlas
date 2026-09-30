@@ -15,9 +15,9 @@ models,evidence=inspect_and_curate(load_requested_models(None,'pf-helper3'))
 data={'generated':datetime.now(timezone.utc).isoformat(),'species':[], 'b12_audit':evidence,
       'mode':'static curated GEM; no solved fluxes', 'sources':{}}
 WEB=ROOT/'scripts/analysis/metabolic_atlas/web'
-CSS_FILES=['00-base','10-cytoscape','20-escher','30-flow','40-core','50-runtime','60-sankey','65-flux_overview','90-theme']
+CSS_FILES=['00-base','10-cytoscape','20-escher','30-flow','40-core','50-runtime','60-sankey','62-home','65-flux_overview','90-theme']
 # Script load order matters: later modules wrap functions defined by earlier ones.
-JS_MODULES=['00-overview','state','cytoscape','escher','flow','flux','runtime','core','sankey','flux_overview','theme']
+JS_MODULES=['00-overview','state','cytoscape','escher','flow','flux','runtime','core','sankey','flux_overview','home','theme']
 VENDOR=['cytoscape.min.js','escher.min.js','CYTOSCAPE_LICENSE','ESCHER_LICENSE']
 paths=['main.py','src/utils.py','src/metabolite_ids.py','src/b12_evidence.py',
        'src/dfba_simulator.py','src/audited_dfba.py','src/physiology_dfba.py',
@@ -54,19 +54,28 @@ if reference.exists():
 data["model_fingerprint"]=hashlib.sha256(json.dumps({"species":data["species"],"medium":data["medium"]},sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
 serialized=json.dumps(data,ensure_ascii=False,allow_nan=False)
 (OUT/'model_data.json').write_text(serialized,encoding='utf-8')
-# Reference-medium pFBA snapshot, so the flux overview opens instantly and works without the server.
+# pFBA snapshots so the flux overview opens instantly and works without the server:
+# the reference medium plus a few single-carbon-source additions for comparing the three species.
 sys.path.insert(0,str(ROOT/'scripts/analysis/metabolic_atlas/server'))
 import fba_service
-snapshot={'medium':'reference','method':'pFBA (fba_service.check ranking)','species':{}}
-for sp in data['species']:
-    res=fba_service.check(sp['short'],'',1,ranking=True)
+SCENARIOS=[('reference','参照培地',{}),
+           ('lac','＋L-乳酸 10 mM',{'lac__L_e':10.0}),
+           ('glc','＋グルコース 10 mM',{'glc__D_e':10.0}),
+           ('ppa','＋プロピオン酸 10 mM',{'ppa_e':10.0}),
+           ('ac','＋酢酸 10 mM',{'ac_e':10.0})]
+def solve(sp,medium):
+    res=fba_service.check(sp['short'],'',1,ranking=True,medium_override=medium)
     entry={'status':res.get('status'),'message':res.get('message'),'objective':res.get('objective'),'objective_value':res.get('objective_value')}
     if res.get('status')=='optimal':
         entry['fluxes']={k:v for k,v in res['fluxes'].items() if abs(v)>1e-9}
         entry['mass_balance_residual']=res.get('mass_balance_residual')
         entry['uptake_limits']=res.get('uptake_limits')
-    snapshot['species'][sp['short']]=entry
-snapshot['model_fingerprint']=data['model_fingerprint']
+    return entry
+snapshot={'method':'pFBA (fba_service.check ranking)','model_fingerprint':data['model_fingerprint'],'scenarios':[]}
+for sid,label,add in SCENARIOS:
+    medium={**data['medium'],**add}
+    snapshot['scenarios'].append({'id':sid,'label':label,'added':add,'species':{sp['short']:solve(sp,medium if add else None) for sp in data['species']}})
+snapshot['species']=snapshot['scenarios'][0]['species']   # reference medium, kept for older readers
 (OUT/'flux_snapshot.json').write_text(json.dumps(snapshot,ensure_ascii=False,allow_nan=False),encoding='utf-8')
 def read(path):
     return path.read_text(encoding='utf-8')

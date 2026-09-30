@@ -109,28 +109,43 @@ if (typeof document !== 'undefined' && typeof cyHost !== 'undefined') (() => {
 
   const snapshot = JSON.parse(document.getElementById('fluxSnapshot')?.textContent || 'null');
   const opts = {unit: 'mmol', solvents: false, minFlux: 0.05, net: true};
-  let results = null;            // {short: {status, fluxes, objective_value, source}}
+  let results = null;            // {short: {status, fluxes, objective_value, uptake_limits, source}}
+  let scenarioId = 'reference';  // a snapshot scenario id, or 'custom' (medium edited on the core map)
   let openCategory = null;
 
   function mediumInUse() { return flowState?.mediumOverride || null; }
+  function scenarios() {
+    const list = snapshot?.scenarios || [];
+    return mediumInUse() ? [...list, {id: 'custom', label: '編集した培地（中心代謝マップ）'}] : list;
+  }
+  function mediumOf(id) {
+    if (id === 'custom') return mediumInUse();
+    const sc = snapshot?.scenarios.find(x => x.id === id);
+    return sc && Object.keys(sc.added).length ? {...D.medium, ...sc.added} : null;   // null = reference medium
+  }
 
-  async function load(force = false) {
-    const custom = mediumInUse();
-    const stale = !results || results.__custom !== !!custom;
-    if (!force && !stale) return;
-    if (!custom && snapshot && !force) {
-      results = {__custom: false};
-      for (const [short, e] of Object.entries(snapshot.species)) results[short] = {...e, source: 'ビルド時のpFBA（参照培地）'};
-      return;
-    }
-    results = {__custom: !!custom};
+  async function solveOnServer(id) {
+    const medium = mediumOf(id);
+    const out = {};
     setNote('サーバーでpFBAを計算中…（菌種ごと、数秒かかります）');
     await Promise.all(D.species.map(async s => {
       try {
-        const r = await loadCommonRanking(s.short);
-        results[s.short] = {...r, source: custom ? 'サーバーで計算（編集した培地）' : 'サーバーで再計算（参照培地）'};
-      } catch (e) { results[s.short] = {status: 'unknown', message: String(e.message || e)}; }
+        const r = await atlasCalculate('ranking', {species: s.short, medium});
+        out[s.short] = {...r, source: 'サーバーで計算'};
+      } catch (e) { out[s.short] = {status: 'unknown', message: String(e.message || e)}; }
     }));
+    return out;
+  }
+
+  async function load(force = false) {
+    if (scenarioId === 'custom' && !mediumInUse()) scenarioId = 'reference';
+    const sc = snapshot?.scenarios.find(x => x.id === scenarioId);
+    if (sc && !force) {
+      results = {};
+      for (const [short, e] of Object.entries(sc.species)) results[short] = {...e, source: 'ビルド時に計算済み（' + sc.label + '）'};
+      return;
+    }
+    results = await solveOnServer(scenarioId);
   }
 
   function setNote(text) { const n = document.getElementById('fluxOvNote'); if (n) n.textContent = text; }
@@ -231,7 +246,7 @@ if (typeof document !== 'undefined' && typeof cyHost !== 'undefined') (() => {
       box.innerHTML = `<h3 style="color:${colors[s.short]}">${esc(s.short)}</h3>`;
       if (!e) { box.insertAdjacentHTML('beforeend', '<p class="fo-empty">未計算</p>'); wrap.append(box); continue; }
       if (e.status !== 'optimal') { box.insertAdjacentHTML('beforeend', `<p class="fo-empty">${esc(e.message || '計算できませんでした')}</p>`); wrap.append(box); continue; }
-      if (!g.grows) { box.insertAdjacentHTML('beforeend', '<p class="fo-empty">この培地では成長できず（目的関数=0）、流量はすべて0です。' + (mediumInUse() ? '' : '参照培地にはPfが使える炭素源（グルコース・乳酸・プロピオン酸）がなく、Pfの酸素交換も閉じています。') + '中心代謝マップで炭素源などを加えて「サーバーで再計算」してください（例：乳酸10 mMで成長）。</p>'); wrap.append(box); continue; }
+      if (!g.grows) { box.insertAdjacentHTML('beforeend', '<p class="fo-empty">この培地では成長できず（目的関数=0）、流量はすべて0です。' + (scenarioId !== 'reference' ? '' : '参照培地にはPfが使える炭素源（グルコース・乳酸・プロピオン酸）がなく、Pfの酸素交換も閉じています。') + '中心代謝マップで炭素源などを加えて「サーバーで再計算」してください（例：乳酸10 mMで成長）。</p>'); wrap.append(box); continue; }
       const cats = FluxOverview.pathways(s, e.fluxes, CoreMetabolism.select(s));
       const max = cats[0]?.total || 1;
       box.insertAdjacentHTML('beforeend', `<p class="fo-sub2">成長 ${g.value.toFixed(3)} /h · 活性のある内部反応 ${cats.reduce((a, c) => a + c.active, 0)}</p>`);
@@ -257,21 +272,37 @@ if (typeof document !== 'undefined' && typeof cyHost !== 'undefined') (() => {
     return wrap;
   }
 
+  /* Growth of every species under every prepared medium: the quickest way to see who can use what. */
+  function compareTable() {
+    const list = scenarios();
+    if (list.length < 2) return '';
+    const cell = (sc, short) => {
+      const e = sc.species?.[short];
+      if (!e) return '<td class="fo-na">—</td>';
+      const g = FluxOverview.growth(e);
+      return g.grows ? `<td class="fo-g">${g.value.toFixed(3)}</td>` : '<td class="fo-g0">成長なし</td>';
+    };
+    return '<table class="fo-compare"><caption>培地ごとの成長速度（/h）　行をクリックで表示を切り替え</caption><thead><tr><th>培地</th>' +
+      D.species.map(s => `<th style="color:${colors[s.short]}">${esc(s.short)}</th>`).join('') + '</tr></thead><tbody>' +
+      list.map(sc => `<tr data-scenario="${esc(sc.id)}"${sc.id === scenarioId ? ' class="on"' : ''}><td>${esc(sc.label)}</td>${D.species.map(s => cell(sc, s.short)).join('')}</tr>`).join('') + '</tbody></table>';
+  }
+
   function render() {
     host.innerHTML = '';
-    const custom = mediumInUse();
     const head = document.createElement('div');
     head.className = 'fo-head';
+    const cur = scenarios().find(x => x.id === scenarioId);
     head.innerHTML = '<p><strong>培地成分 → 各菌種 → 代謝の流れ（FBA）</strong>　共通のpFBA解（GEMの目的関数を最大化し、総絶対流量を最小化）。' +
       '<em>各菌種を単独で、同じ培地条件で解いた結果</em>で、菌種間の分泌物の授受は含みません。流量ゼロは他の最適解でもゼロとは限りません。</p>' +
-      `<p class="fo-cond">培地条件：<strong>${custom ? '編集した培地' : '参照培地'}</strong>　${esc(Object.values(results || {}).find(v => v?.source)?.source || '')}</p>` +
+      compareTable() +
+      `<p class="fo-cond">表示中の培地条件：<strong>${esc(cur?.label || '')}</strong>　${esc(Object.values(results || {}).find(v => v?.source)?.source || '')}</p>` +
       '<div class="fo-controls">' +
       `<label>単位 <select id="foUnit"><option value="mmol"${opts.unit === 'mmol' ? ' selected' : ''}>mmol/gDW/h</option><option value="C"${opts.unit === 'C' ? ' selected' : ''}>C-mmol/gDW/h（炭素換算）</option></select></label>` +
       `<label>最小流量 <select id="foMin">${[0.01, 0.05, 0.1, 0.5, 1].map(v => `<option value="${v}"${opts.minFlux === v ? ' selected' : ''}>${v}</option>`).join('')}</select></label>` +
       `<label><input type="checkbox" id="foSolv"${opts.solvents ? ' checked' : ''}> 水・H⁺・CO₂も表示</label>` +
       `<label><input type="checkbox" id="foNet"${opts.net ? ' checked' : ''}> 同じ元素の取込と分泌（Fe³⁺→Fe²⁺）は相殺</label>` +
-      '<button type="button" id="foRecalc">サーバーで再計算</button><span id="fluxOvNote" role="status"></span></div>' +
-      '<p class="fo-legend"><span class="fo-dot" style="background:#506b78"></span>成分　<span class="fo-dot" style="background:#b4531f"></span>▲ モデル既定の取込上限に達している成分（需要ではなく上限で決まった値）</p>';
+      '<button type="button" id="foRecalc">この培地をサーバーで再計算</button><span id="fluxOvNote" role="status"></span></div>' +
+      '<p class="fo-legend"><span class="fo-dot" style="background:#506b78"></span>成分　<span class="fo-dot" style="background:#b4531f"></span>▲ 取込上限に達している成分（需要ではなく上限で決まった値）</p>';
     host.append(head);
     const sk = drawExchangeSankey();
     const skWrap = document.createElement('div');
@@ -306,6 +337,8 @@ if (typeof document !== 'undefined' && typeof cyHost !== 'undefined') (() => {
   });
   host.addEventListener('click', async e => {
     if (e.target.id === 'foRecalc') { await load(true); render(); return; }
+    const sc = e.target.closest('tr[data-scenario]');
+    if (sc) { scenarioId = sc.dataset.scenario; openCategory = null; await load(); render(); return; }
     const row = e.target.closest('.fo-row');
     if (row) {
       const same = openCategory && openCategory.sp === row.dataset.sp && openCategory.cat === row.dataset.cat;
@@ -316,10 +349,9 @@ if (typeof document !== 'undefined' && typeof cyHost !== 'undefined') (() => {
     if (tr) { tab('search'); $('species').value = tr.dataset.sp; setSearchGroup(null); $('query').value = tr.dataset.id; renderResults(); showReaction(tr.dataset.sp, tr.dataset.id); }
   });
 
-  let savedTitle = null;
   async function enter() {
-    if (!savedTitle) savedTitle = document.querySelector('.panelhead h2').textContent;
-    document.querySelector('.panelhead h2').textContent = 'FBAの流れ · 培地成分から代謝へ';
+    if (mediumInUse() && scenarioId === 'reference' && !window.__foSeen) { scenarioId = 'custom'; }
+    window.__foSeen = true;
     flowCanvasSuspended = true;
     flowMode = false;
     setLayer('fluxov');
@@ -328,6 +360,8 @@ if (typeof document !== 'undefined' && typeof cyHost !== 'undefined') (() => {
     await load();
     render();
   }
+
+  window.openFluxScenario = id => { scenarioId = id; tab('map'); enter(); };
 
   const tabBtn = document.createElement('button');
   tabBtn.id = 'fluxTab';
@@ -338,7 +372,6 @@ if (typeof document !== 'undefined' && typeof cyHost !== 'undefined') (() => {
   const baseSetLayer = setLayer;
   setLayer = function (layer) {
     baseSetLayer(layer);
-    if (layer !== 'fluxov' && savedTitle) { document.querySelector('.panelhead h2').textContent = savedTitle; savedTitle = null; }
   };
   const baseExport = $('export').onclick;
   $('export').onclick = () => {
