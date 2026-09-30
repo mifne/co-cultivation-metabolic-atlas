@@ -37,7 +37,7 @@
     const box = document.createElement('div');
     box.id = 'atlasLegend';
     box.innerHTML = '<b>PATHWAY</b>' + legendItems.map(([t, c]) => '<span><i style="border-color:' + c + '"></i>' + t + '</span>').join('') +
-      '<b style="margin-top:4px">LINES</b><span><u style="background:#476677"></u>反応の主な入力→出力</span><span><u style="background:#a7b9c0;height:2px"></u>同じ反応の他の基質・生成物</span>';
+      '<b style="margin-top:4px">LINES</b><span><u style="background:#476677"></u>反応の主な入力→出力</span><span><i style="border-color:#b4531f"></i>オレンジの注記：表示していない反応との間で出入りしているFBA流量</span><span><u style="background:#a7b9c0;height:2px"></u>同じ反応の他の基質・生成物</span>';
     cyHost.parentNode.style.position = 'relative';
     cyHost.parentNode.append(box);
   }
