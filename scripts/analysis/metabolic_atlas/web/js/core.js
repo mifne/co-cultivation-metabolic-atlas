@@ -2,6 +2,7 @@
  * This module never changes GEM bounds or the medium used by FBA.
  */
 const CoreMetabolism = (() => {
+  const TCA_CENTER = [1520, 610], TCA_RADIUS = 250;
   const aliases = {
     g6p:['g6p_c','00079'], f6p:['f6p_c','00072'], fdp:['fdp_c','00290'],
     dhap:['dhap_c','00095'], g3p:['g3p_c','00102'], dpg:['13dpg_c','00203'],
@@ -50,7 +51,7 @@ const CoreMetabolism = (() => {
     dpg:[760,0],pg3:[950,0],pg2:[1140,0],pep:[1330,0],pyr:[1520,0],accoa:[1520,220],
     pgl:[0,220],pgc:[0,440],ru5p:[0,660],r5p:[220,660],xu5p:[220,440],s7p:[440,660],e4p:[440,440],kdp:[220,220]};
   const ring=['cit','icit','akg','succoa','succ','fum','mal','oaa'];
-  ring.forEach((k,i)=>{const a=(-90+i*45)*Math.PI/180;points[k]=[1520+250*Math.cos(a),610+250*Math.sin(a)]});
+  ring.forEach((k,i)=>{const a=(-90+i*45)*Math.PI/180;points[k]=[TCA_CENTER[0]+TCA_RADIUS*Math.cos(a),TCA_CENTER[1]+TCA_RADIUS*Math.sin(a)]});
   points.oxs=[1750,514];
   const currency = /^(?:(?:h|h2o|atp|adp|amp|gtp|gdp|pi|ppi|nad|nadh|nadp|nadph|coa|co2|hco3|o2|fad|fadh2|q8|q8h2|mqn8|mql8|2dmmq8|2dmmql8|fdxox|fdxrd)_[cep]\d*|(?:S_)?cpd(?:00001|00002|00003|00004|00005|00006|00007|00008|00009|00010|00011|00012|00015|00018|00031|00038|00067|00982|11620|11621|15499|15500|15560|15561)_\w+)$/;
   function select(s){
@@ -128,7 +129,7 @@ const CoreMetabolism = (() => {
     return {...path,pool,status:fallback?'imported':'unconnected',reason:fallback?'細胞内への取込まで表示。選定した中心代謝への接続は探索範囲内で見つかりません。':'交換反応まで表示。中心代謝への接続は探索範囲内で見つかりません。'};
   }
   const shortLabels=Object.fromEntries(Object.entries(aliases).map(([key,[mid]])=>[key,mid.replace(/_c$/,'')]));
-  return {select,connect,makeIndex,currency,points,shortLabels};
+  return {select,connect,makeIndex,currency,points,shortLabels,tcaRing:{center:TCA_CENTER,radius:TCA_RADIUS}};
 })();
 if(typeof module!=='undefined')module.exports=CoreMetabolism;
 
@@ -140,7 +141,14 @@ if(typeof document!=='undefined'){
     n.data.coreReaction=true;n.data.coreFrom=entry.from;n.data.coreTo=entry.to;
     n.data.requirementOrigin=entry.from;
     const a=st.coreSpec.positions.get(entry.from),b=st.coreSpec.positions.get(entry.to);
-    centralPut(st,id,{x:(a.x+b.x)/2,y:(a.y+b.y)/2});
+    let at={x:(a.x+b.x)/2,y:(a.y+b.y)/2};
+    // Adjacent TCA-ring steps: put the reaction marker on the circle, not on the chord, so the cycle reads as round.
+    const onRing=p=>Math.abs(Math.hypot(p.x-CoreMetabolism.tcaRing.center[0],p.y-CoreMetabolism.tcaRing.center[1])-CoreMetabolism.tcaRing.radius)<1e-6;
+    if(onRing(a)&&onRing(b)&&Math.hypot(a.x-b.x,a.y-b.y)<CoreMetabolism.tcaRing.radius*.9){
+      const dx=at.x-CoreMetabolism.tcaRing.center[0],dy=at.y-CoreMetabolism.tcaRing.center[1],d=Math.hypot(dx,dy)||1;
+      at={x:CoreMetabolism.tcaRing.center[0]+dx/d*CoreMetabolism.tcaRing.radius,y:CoreMetabolism.tcaRing.center[1]+dy/d*CoreMetabolism.tcaRing.radius};
+    }
+    centralPut(st,id,at);
     // Parallel PFK / FBPase use separate, short lanes.
     if(entry.label==='F1,6BP → F6P'&&st.coreSpec.reactions.some(x=>x.label==='PFK'))n.position.y+=80;
     for(const [mid,c] of Object.entries(entry.r.stoich)){

@@ -64,6 +64,18 @@
   // TCA ring: outward from the ring centre. Vertical chains: to the right of the node.
   const VERTICAL = new Set(['dhap', 'g6p', 'pgl', 'pgc', 'pyr', 'accoa']);
   const RING = new Set(PATHWAY.tca.keys.filter(k => k !== 'accoa'));
+  // Reaction names on the TCA circle sit outside it, so they never lie on the ring's own lines.
+  function placeRingReactionLabels(fontSize) {
+    const ring = CoreMetabolism.tcaRing, [cx, cy0] = ring.center;
+    mapCy.nodes('[kind="fr"]').forEach(n => {
+      const p = n.position(), dx = p.x - cx, dy = p.y - cy0, d = Math.hypot(dx, dy);
+      if (Math.abs(d - ring.radius) > 1e-6) return;
+      const ux = dx / d, uy = dy / d, w = String(n.data('label') || n.data('reaction')).length * fontSize * 0.3;
+      n.style({'text-valign': 'center', 'text-halign': 'center',
+               'text-margin-x': ux * (w + 22), 'text-margin-y': uy * (fontSize * 0.5 + 20)});
+    });
+  }
+
   function placeCoreLabels(fontSize) {
     const centre = mapCy.getElementById('core_label_tca');
     const gap = 26;
@@ -151,6 +163,7 @@
       const fs = Math.min(46, Math.max(19, 10.5 / z));
       mapCy.nodes('[coreKey]').style({'font-size': fs});
       placeCoreLabels(fs);
+      placeRingReactionLabels(mapCy.nodes('[kind="fr"]').length ? Math.min(28, Math.max(16, 9 / z)) : 16);
       routeAroundLabels();
       mapCy.nodes('[kind="fr"]').style({'font-size': Math.min(28, Math.max(16, 9 / z))});
     });
