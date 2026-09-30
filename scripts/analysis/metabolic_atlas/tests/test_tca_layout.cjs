@@ -1,6 +1,6 @@
 const fs=require('fs'),assert=require('assert'),path=require('path');
-const src=fs.readFileSync(path.join(__dirname,'metabolic_map_flow.js'),'utf8');
-const cytoscape=require('../../outputs/metabolic_map_20260922/vendor/cytoscape.min.js');
+const src=fs.readFileSync(path.join(__dirname,'../web/js/flow.js'),'utf8');
+const cytoscape=require('../web/vendor/cytoscape.min.js');
 const ring=['cit_c','acon_C_c','icit_c','akg_c','succoa_c','succ_c','fum_c','mal__L_c','oaa_c'];
 const rxns=['ACONTa','ACONTb','ICDHyr','AKGDH','SUCOAS','SUCDi','FUM','MDH','CS'];
 const records=[];ring.forEach((mid,i)=>{for(const [id,data,angle] of [['m_'+mid,{kind:'fm',mid},i*2*Math.PI/9],['r_'+rxns[i],{kind:'fr',reaction:rxns[i],requirementOrigin:mid},(i+.5)*2*Math.PI/9]])records.push({data:{id,...data},position:{x:330*Math.cos(angle),y:330*Math.sin(angle)}})});

@@ -1,0 +1,13 @@
+/* Extracted from js/escher.js */
+/* escherStyle */
+#escherAtlas .reaction-label{font-size:26px!important;font-weight:normal!important}
+#escherAtlas .node-label{font-size:22px!important;font-style:normal!important}
+#escherAtlas .segment{stroke-width:3px!important}
+#escherAtlas .text-label{font-size:20px!important}
+
+/* unifiedStyle */
+#escherAtlas .canvas{fill:transparent!important}
+#escherAtlas svg{background:transparent}
+#mappane .note{font-size:12px}
+.panelhead .muted{display:none}
+

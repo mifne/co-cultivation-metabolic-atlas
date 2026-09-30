@@ -1,7 +1,7 @@
 """Supply certificate controls: all co-substrates required, missing supply and cycles."""
 import json,tempfile
 from pathlib import Path
-import metabolic_fba_service as service
+import fba_service as service
 
 def run(medium,reactions):
  mids={m for r in reactions for m in r['stoich']}

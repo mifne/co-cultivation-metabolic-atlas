@@ -1,6 +1,6 @@
 # 代謝ビューア：FBA供給判定
 
-実装: metabolic_fba_service.py / metabolic_structure_server.py の /fba。
+実装: fba_service.py / structure_server.py の /fba。
 
 表示中の反応を方向別に最大化し、COBRApyのCycleFreeFluxで内部循環を除去した解を検証する。
 循環除去時は対象反応の目的を0へ置換する。元の最大値を固定すると、対象反応自身の循環が残るため。
@@ -26,7 +26,7 @@
 条件は現在固定。培地を編集する機能を追加する際は条件をAPIとキャッシュキーに含めること。
 
 ## 起動・検証
-WSLで `python3 scripts/analysis/metabolic_structure_server.py`（127.0.0.1:8769）。ビューアはlocalhost:8768。
+WSLで `python3 scripts/analysis/metabolic_atlas/server/structure_server.py`（127.0.0.1:8769）。ビューアはlocalhost:8768。
 `OPENBLAS_NUM_THREADS=1 python3 scripts/analysis/test_metabolic_fba_service.py`
 同時供給、必須共基質欠損、循環のみの偽陽性を検証。
 GLUabc: 循環除去後1.818181818 mmol/gDW/h、収支残差1.78e-15。

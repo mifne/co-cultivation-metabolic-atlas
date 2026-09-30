@@ -2,7 +2,7 @@
 from pathlib import Path
 import sys, json, hashlib
 from datetime import datetime, timezone
-ROOT=Path(__file__).resolve().parents[2]
+ROOT=Path(__file__).resolve().parents[3]
 sys.path.insert(0,str(ROOT))
 from main import load_requested_models
 from src.b12_evidence import inspect_and_curate
@@ -14,14 +14,21 @@ OUT.mkdir(parents=True,exist_ok=True)
 models,evidence=inspect_and_curate(load_requested_models(None,'pf-helper3'))
 data={'generated':datetime.now(timezone.utc).isoformat(),'species':[], 'b12_audit':evidence,
       'mode':'static curated GEM; no solved fluxes', 'sources':{}}
+WEB=ROOT/'scripts/analysis/metabolic_atlas/web'
+CSS_FILES=['00-base','10-cytoscape','20-escher','30-flow','40-core','50-runtime','90-theme']
+# Script load order matters: later modules wrap functions defined by earlier ones.
+JS_MODULES=['00-overview','cytoscape','escher','complete','flow','flux','runtime','core','theme']
+VENDOR=['cytoscape.min.js','escher.min.js','CYTOSCAPE_LICENSE','ESCHER_LICENSE']
 paths=['main.py','src/utils.py','src/metabolite_ids.py','src/b12_evidence.py',
        'src/dfba_simulator.py','src/audited_dfba.py','src/physiology_dfba.py',
        'models/sbml/final_consortium/Actinoplanes_sp_OR16_lcp.xml',
        'models/sbml/final_consortium/Rhizobacter_gummiphilus_NS21.xml',
        'models/sbml/helper_candidates/Propionibacterium_freudenreichii_shermanii_curated.xml',
-       'models/genome/AP019371.1.faa','models/genome/NS21.faa',
-       'scripts/analysis/build_metabolic_map_20260922.py','scripts/analysis/metabolic_map_template.html',
-       'scripts/analysis/metabolic_map_flux.js','scripts/analysis/metabolic_map_flow.js','scripts/analysis/metabolic_map_complete.js','scripts/analysis/metabolic_map_escher.js','outputs/metabolic_map_20260922/vendor/escher.min.js','scripts/analysis/metabolic_map_cytoscape.js','outputs/metabolic_map_20260922/vendor/cytoscape.min.js']
+       'models/genome/AP019371.1.faa','models/genome/NS21.faa','scripts/analysis/metabolic_atlas/build.py']
+paths+=['scripts/analysis/metabolic_atlas/web/index.template.html']
+paths+=['scripts/analysis/metabolic_atlas/web/css/%s.css'%n for n in CSS_FILES]
+paths+=['scripts/analysis/metabolic_atlas/web/js/%s.js'%n for n in JS_MODULES]
+paths+=['scripts/analysis/metabolic_atlas/web/vendor/'+n for n in VENDOR[:2]]
 for p in paths:data['sources'][p]=hashlib.sha256((ROOT/p).read_bytes()).hexdigest()
 for name,model in models.items():
     short='OR16' if 'OR16' in name else 'NS21' if 'NS21' in name else 'Pf'
@@ -44,20 +51,28 @@ if reference.exists():
     data['medium_reference']=str(reference.relative_to(ROOT))
     data['medium']=json.loads(reference.read_text())['common_initial_medium']
     data['sources'][str(reference.relative_to(ROOT))]=hashlib.sha256(reference.read_bytes()).hexdigest()
+data["model_fingerprint"]=hashlib.sha256(json.dumps({"species":data["species"],"medium":data["medium"]},sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
 serialized=json.dumps(data,ensure_ascii=False,allow_nan=False)
 (OUT/'model_data.json').write_text(serialized,encoding='utf-8')
-template=(ROOT/'scripts/analysis/metabolic_map_template.html').read_text(encoding='utf-8')
-assert template.count('__MODEL_DATA__')==1
-html=template.replace('__MODEL_DATA__',serialized.replace('<','\\u003c'))
-extension=(ROOT/'scripts/analysis/metabolic_map_cytoscape.js').read_text(encoding='utf-8')
-library=(OUT/'vendor/cytoscape.min.js').read_text(encoding='utf-8')
-html=html.replace('</body>','').replace('</html>','')+'<script>'+library+'</script><script>'+extension+'</script></html>'
-escher_library=(OUT/'vendor/escher.min.js').read_text(encoding='utf-8')
-escher_extension=(ROOT/'scripts/analysis/metabolic_map_escher.js').read_text(encoding='utf-8')
-html=html.replace('</html>','')+'<script src='+chr(34)+'vendor/escher.min.js'+chr(34)+'></script><script>'+escher_extension+'</script></html>'
-html=html.replace('</html>','')+'<script>'+(ROOT/'scripts/analysis/metabolic_map_complete.js').read_text(encoding='utf-8')+'</script></html>'
-html=html.replace('</html>','')+'<script>'+(ROOT/'scripts/analysis/metabolic_map_flow.js').read_text(encoding='utf-8')+'</script></html>'
-html=html.replace('</html>','')+'<script>'+(ROOT/'scripts/analysis/metabolic_map_flux.js').read_text(encoding='utf-8')+'</script></html>'
+def read(path):
+    return path.read_text(encoding='utf-8')
+template=read(WEB/'index.template.html')
+for marker in ('__MODEL_DATA__','/*__CSS__*/','<!--__SCRIPTS__-->'):
+    assert template.count(marker)==1,marker
+css='\n'.join(read(WEB/'css'/(n+'.css')) for n in CSS_FILES)
+def script(name):
+    return '<script>'+read(WEB/'js'/(name+'.js'))+'</script>'
+scripts=[]
+for name in JS_MODULES:
+    if name=='cytoscape': scripts.append('<script>'+read(WEB/'vendor/cytoscape.min.js')+'</script>')
+    if name=='escher': scripts.append('<script src="vendor/escher.min.js"></script>')
+    scripts.append(script(name))
+scripts.append('<script>startAtlas();</script></html>')
+html=(template.replace('__MODEL_DATA__',serialized.replace('<','\\u003c'))
+      .replace('/*__CSS__*/',css).replace('<!--__SCRIPTS__-->',''.join(scripts)))
+(OUT/'vendor').mkdir(exist_ok=True)
+for name in VENDOR:
+    (OUT/'vendor'/name).write_bytes((WEB/'vendor'/name).read_bytes())
 (OUT/'index.html').write_text(html,encoding='utf-8')
 nodes=[];edges=[]
 for s in data['species']:

@@ -1,0 +1,19 @@
+/* Extracted from js/cytoscape.js */
+/* atlasCSS */
+#mappane{grid-template-columns:minmax(0,1fr) 280px}
+.canvas{padding:0;overflow:hidden}
+#cyMap{min-width:0!important;height:calc(100vh - 270px)!important;min-height:470px}
+header{padding:14px 24px}
+header h1{font-size:23px}
+.toolbar{padding:10px 24px}
+#atlasStatus{font-size:12px}
+ @media(max-width:850px){
+#mappane{grid-template-columns:1fr}
+#cyMap{height:60svh!important;min-height:300px!important}
+#context{max-height:none!important}
+ .toolbar button,.panelhead button,dialog button{min-height:44px}
+ dialog{max-width:calc(100vw - 20px)!important;box-sizing:border-box}
+ input,select{font-size:16px}
+ #reactionOverlay,#reactionChooser,#mediumPicker,#fluxMediumEditor{max-height:85svh!important}
+}
+

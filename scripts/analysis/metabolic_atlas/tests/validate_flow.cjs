@@ -1,6 +1,6 @@
 const fs=require('fs'),vm=require('vm'),path=require('path');
-const root=path.resolve(__dirname,'../..');
-const src=fs.readFileSync(path.join(__dirname,'metabolic_map_flow.js'),'utf8');
+const root=path.resolve(__dirname,'../../../..');
+const src=fs.readFileSync(path.join(__dirname,'../web/js/flow.js'),'utf8');
 const D=JSON.parse(fs.readFileSync(path.join(root,'outputs/metabolic_map_20260922/model_data.json'),'utf8'));
 const context=vm.createContext({D,pools:[]});
 vm.runInContext(src.slice(src.indexOf('const flowCurrency='),src.indexOf('function flowChoose')),context);

@@ -1,0 +1,34 @@
+/* Extracted from js/flow.js */
+/* flowViewportStyle */
+#mappane{align-items:start}
+#context{max-height:calc(100vh - 220px);overflow:auto}
+#flowDetails{overflow-wrap:anywhere}
+
+/* chooserStyle */
+#reactionChooser{position:fixed;inset:8vh auto auto 50%;transform:translateX(-50%);width:min(680px,94vw);max-height:82vh;overflow:auto;border:1px solid #aebfc6;border-radius:14px;padding:22px;box-shadow:0 20px 80px #142e4555;color:#203c49;background:white;z-index:10000}
+#reactionChooser::backdrop{background:#132b3b55}
+#reactionChoices{max-height:48vh;overflow:auto}
+.reactionChoice{display:block;text-align:left;width:100%;margin:7px 0;padding:12px}
+.reactionChoice small{display:block;color:#607683;margin-top:5px}
+
+/* interactionStyle */
+#reactionOverlay{width:min(720px,85vw);max-height:80vh;overflow:auto;border:1px solid #aec3cb;border-radius:14px;padding:24px;color:#243e48}
+#reactionOverlay::backdrop{background:#17313d66}
+#reactionOverlay table{width:100%;border-collapse:collapse}
+#reactionOverlay td,#reactionOverlay th{padding:8px;text-align:left;border-bottom:1px solid #e1e8eb}
+#compoundTools{position:fixed;z-index:50;display:flex;align-items:center;pointer-events:none;transform:translate(-50%,-50%);gap:4px}
+#compoundTools[hidden]{display:none}
+#compoundTools span{width:24px}
+#compoundTools button{pointer-events:auto;display:grid;place-items:center;width:36px;height:52px;padding:4px 6px;background:transparent;border:0;border-radius:5px;color:#000;box-shadow:none}
+#compoundTools button[aria-pressed="true"]{background:#e7eef2}
+#compoundTools button:hover,#compoundTools button:focus-visible{background:#ffffffcc;outline:1px solid #b8c3ca}
+#structurePreview{position:fixed;z-index:49;background:white;border:1px solid #c9d6dc;border-radius:10px;padding:10px;box-shadow:0 4px 18px #243e4826;box-sizing:border-box;width:262px;max-width:calc(100vw - 16px);overflow:hidden;pointer-events:none;font-size:12px}
+#structurePreview svg{display:block;width:100%;height:auto;max-height:165px}
+
+/* structureFitStyle */
+#structurePreview{padding:14px;display:flex;flex-direction:column;gap:4px;max-width:calc(100vw - 24px);overflow:auto}
+#structurePreview[hidden]{display:none}
+#structurePreview strong{flex:none;overflow-wrap:anywhere}
+#structurePreview svg{display:block;flex:1 1 0;min-height:0;width:100%;height:100%;max-height:none;object-fit:contain}
+#structurePreview>div:last-child{flex:none;font-size:11px}
+

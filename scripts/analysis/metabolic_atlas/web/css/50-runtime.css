@@ -1,0 +1,14 @@
+/* Extracted from js/runtime.js */
+/* atlasStyle */
+.atlasDialog{width:min(720px,calc(100vw - 28px));max-height:85dvh;overflow:auto;box-sizing:border-box;padding:20px;border:1px solid #bacbd2;border-radius:12px;color:#243c50}
+.atlasDialog::backdrop{background:#18304455}
+.atlasDialog button,#atlasSessionControls button{min-height:44px}
+.mediumRow{display:grid;grid-template-columns:minmax(0,1fr) 110px;gap:12px;align-items:center;margin:8px 0}
+.mediumRow input{width:100%;min-width:0;font-size:16px}
+.compoundStructure svg{width:100%;height:auto;max-height:45dvh}
+#mediumAppliedSummary{font-size:13px}
+#mediumAppliedSummary table{width:100%;overflow-wrap:anywhere}
+#mediumPending{color:#865c16;font-weight:bold}
+#atlasSessionControls,#fluxControls{border-bottom:1px solid #d5dfe5;padding-bottom:12px;margin-bottom:12px}
+#atlasSessionControls button{margin:3px}
+

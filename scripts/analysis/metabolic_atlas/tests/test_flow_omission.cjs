@@ -1,5 +1,5 @@
 const fs=require('fs'),assert=require('assert');
-const src=fs.readFileSync(__dirname+'/metabolic_map_flow.js','utf8');
+const src=fs.readFileSync(__dirname+'/../web/js/flow.js','utf8');
 const code=src.slice(src.indexOf('function directionalOmission('),src.indexOf('function applyOmissions('));
 const omit=new Function(code+';return directionalOmission')();
 const edges=[['feed','r1'],['r1','a'],['a','r2'],['r2','b'],['r2','side']].map(([source,target])=>({source,target}));

@@ -1,0 +1,19 @@
+/* Extracted from js/core.js */
+/* coreStyle */
+#centralControls{padding:0 0 16px}
+#centralControls h3{font-size:20px;margin:12px 0}
+#centralAdd{width:100%;background:#e1efea;border:1px solid #92b4a6;font-weight:bold;min-height:46px}
+#centralFit{margin:8px 0;min-height:40px}
+.coreToggle{display:flex;align-items:center;gap:8px;margin:10px 0}
+.coreToggle input{min-width:18px;width:18px;height:18px;margin:0}
+.coreFocus{display:flex;gap:6px;margin:4px 0}
+.coreFocus button{flex:1;padding:7px;min-height:40px}
+.coreNote,#centralConnections small{font-size:12px;line-height:1.65}
+#centralAdvanced>summary{cursor:pointer;padding:14px 0;font-weight:bold}
+#centralSummary details{margin:10px 0;font-size:12px}
+#centralConnections{max-height:220px;overflow:auto}
+@media(min-width:851px){
+#cyMap{height:max(350px,calc(100dvh - 345px));min-height:350px}
+#context{max-height:calc(100vh - 170px)}
+}
+
