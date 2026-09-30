@@ -61,3 +61,8 @@ body[data-layer="fluxov"] #mappane{grid-template-columns:minmax(0,1fr)}
 #fluxOvCarbonSvg .fo-sub{font-size:11px;fill:#657980}
 #fluxOvCarbonSvg .fo-label{font-size:13px}
 #fluxOvCarbonSvg .fo-colhead{font-size:12px;fill:#657980}
+#fluxOvHost .fo-click{cursor:pointer}
+#fluxOvHost rect.fo-click:hover,#fluxOvHost rect.fo-click:focus{filter:brightness(1.25);outline:none}
+#fluxOvHost text.fo-click:hover{text-decoration:underline}
+.fo-pipe{margin:6px 0 2px;padding:9px 12px;border-radius:10px;background:#e9f3f6;border:1px solid #bcd8e0;color:#1f5163;font-size:12.5px;line-height:1.9}
+.fo-pipe button{margin-left:6px}

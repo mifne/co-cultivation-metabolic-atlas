@@ -183,6 +183,8 @@ if (typeof document !== 'undefined' && typeof cyHost !== 'undefined') (() => {
   const fmt = v => v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v >= 1 ? v.toFixed(2) : v.toFixed(3);
   const unitLabel = () => opts.unit === 'C' ? 'C-mmol/gDW/h' : 'mmol/gDW/h';
 
+  let lastExchange = [];
+
   /* Three columns: taken up -> species -> secreted. Band width = |exchange flux|. */
   function drawExchangeSankey() {
     const W = 1000, PAD = 10, X_L = 250, X_M = 470, X_R = 740, BAR = 16, TOP = 62;
@@ -199,6 +201,7 @@ if (typeof document !== 'undefined' && typeof cyHost !== 'undefined') (() => {
       }
       return [...m.values()].sort((a, b) => b.value - a.value);
     };
+    lastExchange = data;
     const inPools = pools('uptake'), outPools = pools('secretion');
     const spTotals = data.map(d => Math.max(d.ex ? d.ex.uptake.reduce((a, r) => a + r.value, 0) : 0,
                                               d.ex ? d.ex.secretion.reduce((a, r) => a + r.value, 0) : 0));
@@ -241,15 +244,15 @@ if (typeof document !== 'undefined' && typeof cyHost !== 'undefined') (() => {
           op.used += w; sp.outUsed += w;
         }
       }
-      nodes.append(el('rect', {x: X_M, y: sp.y, width: BAR, height: sp.h, rx: 3, fill: color}));
+      nodes.append(el('rect', {x: X_M, y: sp.y, width: BAR, height: sp.h, rx: 3, fill: color, class: 'fo-click', 'data-pipe-species': d.s.short, tabindex: 0, role: 'button', 'aria-label': `${d.s.short} の中心代謝マップを開く`}));
       const g = FluxOverview.growth(d.e);
       const cy = sp.y + sp.h / 2;
       labels.append(el('text', {x: X_M + BAR / 2, y: sp.y - 22, 'text-anchor': 'middle', class: 'fo-sp', 'font-weight': 700}, d.s.short));
       labels.append(el('text', {x: X_M + BAR / 2, y: sp.y - 6, 'text-anchor': 'middle', class: 'fo-sub'},
         !d.e ? '未計算' : d.e.status !== 'optimal' ? '計算不可' : g.grows ? `成長 ${g.value.toFixed(3)} /h` : '成長なし（目的関数=0）'));
     }
-    for (const r of inPools) { const p = inPos.get(r.pool); nodes.append(el('rect', {x: X_L, y: p.y, width: BAR, height: p.h, rx: 2, fill: r.atBound ? '#b4531f' : '#506b78'}));
-      const t = el('text', {x: X_L - 8, y: p.y + p.h / 2 + 4, 'text-anchor': 'end', class: 'fo-label'}, `${r.name} ${fmt(r.value)}${r.atBound ? ' ▲' : ''}`);
+    for (const r of inPools) { const p = inPos.get(r.pool); nodes.append(el('rect', {x: X_L, y: p.y, width: BAR, height: p.h, rx: 2, fill: r.atBound ? '#b4531f' : '#506b78', class: 'fo-click', 'data-pipe-pool': r.pool, tabindex: 0, role: 'button', 'aria-label': `${r.name} の代謝パイプラインを開く`}));
+      const t = el('text', {x: X_L - 8, y: p.y + p.h / 2 + 4, 'text-anchor': 'end', class: 'fo-label fo-click', 'data-pipe-pool': r.pool}, `${r.name} ${fmt(r.value)}${r.atBound ? ' ▲' : ''}`);
       if (r.atBound) t.append(el('title', {}, `取込上限に達しています（上限 ${fmt(r.cap)} mmol/gDW/h）。上限は培地濃度からMonod式・在庫量で決まる値で、菌の需要ではありません。`));
       labels.append(t); }
     for (const r of outPools) { const p = outPos.get(r.pool); nodes.append(el('rect', {x: X_R, y: p.y, width: BAR, height: p.h, rx: 2, fill: '#506b78'}));
@@ -310,7 +313,8 @@ if (typeof document !== 'undefined' && typeof cyHost !== 'undefined') (() => {
       let last = -Infinity;
       for (const nd of list) {
         const p = P[i].get(nd.key);
-        nodes.append(el('rect', {x: X[i], y: p.y, width: BAR, height: p.h, rx: 2, fill: i === 2 ? fateColor(nd.key) : '#506b78'}));
+        const clickable = i === 0 && nd.key !== '\u0000other';
+        nodes.append(el('rect', {x: X[i], y: p.y, width: BAR, height: p.h, rx: 2, fill: i === 2 ? fateColor(nd.key) : '#506b78', ...(clickable ? {class: 'fo-click', 'data-pipe-pool': nd.key, 'data-pipe-species': short, tabindex: 0, role: 'button'} : {})}));
         const cy = p.y + p.h / 2, ly = Math.max(cy, last + 32);
         last = ly;
         if (Math.abs(ly - cy) > 3) {
@@ -318,7 +322,7 @@ if (typeof document !== 'undefined' && typeof cyHost !== 'undefined') (() => {
           labels.append(el('polyline', {points: `${x0},${cy} ${x1},${ly}`, fill: 'none', stroke: '#9fb3bb', 'stroke-width': 1}));
         }
         const cls = 'fo-label' + (halo ? ' fo-halo' : '');
-        labels.append(el('text', {x: X[i] + dx, y: ly - 1, 'text-anchor': anchor, class: cls, 'font-weight': 600}, tidy(textFn(nd.key))),
+        labels.append(el('text', {x: X[i] + dx, y: ly - 1, 'text-anchor': anchor, class: cls + (clickable ? ' fo-click' : ''), 'font-weight': 600, ...(clickable ? {'data-pipe-pool': nd.key, 'data-pipe-species': short} : {})}, tidy(textFn(nd.key))),
                       el('text', {x: X[i] + dx, y: ly + 13, 'text-anchor': anchor, class: 'fo-sub' + (halo ? ' fo-halo' : '')}, `${fmt(nd.value)} C-mmol/gDW/h（${pct(nd.value)}）`));
       }
     };
@@ -348,6 +352,51 @@ if (typeof document !== 'undefined' && typeof cyHost !== 'undefined') (() => {
     tabs.innerHTML = grows.map(s => `<button type="button" data-carbon="${esc(s.short)}" class="${s.short === carbonSpecies ? 'on' : ''}" style="border-color:${colors[s.short]}">${esc(s.short)}</button>`).join('');
     box.append(h, tabs, drawCarbonSankey(carbonSpecies));
     return box;
+  }
+
+  /* From the FBA overview straight into the core map: connect the clicked medium component to the
+   * central metabolism (its transporter/enzyme chain) and show this solution's fluxes on it, animated.
+   * The solution shown on the map is the one displayed here, so it also works without the server. */
+  function openPipeline(short, pool) {
+    const e = results?.[short];
+    const sameMap = flowState?.coreMode && flowState.s.short === short && mapCy && !mapCy.destroyed();
+    if (sameMap) flowTab.onclick(); else { tab('map'); openFlow(short, 'glc__D_e'); }
+    const st = flowState;
+    st.mediumOverride = mediumOf(scenarioId);
+    let added = 0;
+    if (pool && !st.mediumRoots.has(pool)) added = addMediumRoots(st, [pool]);
+    if (e?.status === 'optimal' && e.fluxes) {
+      st.fluxResult = {...e, conditions: {source: e.source, scenario: scenarioId}};
+      st.commonRankings = new Map([[short + ':' + JSON.stringify(st.mediumOverride || null), Promise.resolve(st.fluxResult)]]);
+      st.fluxEnabled = true;
+      const box = $('fluxEnabled'); if (box) box.checked = true;
+      const status = $('fluxStatus'); if (status) status.textContent = 'FBAの流れタブの解を表示中：矢印＝正味方向、粒子の速さ＝流量の大小。灰色＝ゼロ流量。';
+      fluxDirty = true;
+      applyFluxView();
+      refreshMediumSummary();
+    }
+    const entry = st.coreConnections.find(x => x.pool === pool);
+    const ids = new Set(entry?.chain || []);
+    if (entry?.target) ids.add('m_' + entry.target);
+    const focus = mapCy.nodes().filter(n => ids.has(n.id()));
+    if (focus.length) {
+      mapCy.fit(focus.union(focus.neighborhood('node')), 90);
+      if (mapCy.zoom() > 1.1) { const bb = focus.boundingBox(); mapCy.zoom({level: 1.1, position: {x: (bb.x1 + bb.x2) / 2, y: (bb.y1 + bb.y2) / 2}}); mapCy.center(focus); }
+    }
+    reportProblem(pool
+      ? (entry?.status === 'connected' || entry?.target
+          ? `${short}：${pool} の代謝パイプライン（${(entry.reactions || []).length}反応）を中心代謝${entry.target ? ' の ' + entry.target : ''} へ接続して表示中。${entry.reason || ''}`
+          : `${short}：${pool} — ${entry?.reason || '中心代謝への接続は見つかりませんでした。'}`)
+      : `${short} の中心代謝マップ（FBAの流れタブの解を重ねて表示）`, {kind: 'info', key: 'pipeline'});
+  }
+
+  function pipelineChooser(pool) {
+    const bar = document.getElementById('foPipeBar');
+    if (!bar) return;
+    const who = lastExchange.filter(d => d.ex?.uptake.some(r => r.pool === pool));
+    if (who.length === 1) { openPipeline(who[0].s.short, pool); return; }
+    const label = who[0]?.ex.uptake.find(r => r.pool === pool)?.name || pool;
+    bar.innerHTML = `<strong>${esc(label)}</strong> を取り込む菌種：` + who.map(d => `<button type="button" data-pipe-species="${esc(d.s.short)}" data-pipe-pool="${esc(pool)}" style="border-color:${colors[d.s.short]}">${esc(d.s.short)} の中心代謝マップで開く</button>`).join(' ');
   }
 
   function pathwayPanel() {
@@ -424,6 +473,11 @@ if (typeof document !== 'undefined' && typeof cyHost !== 'undefined') (() => {
     if (sk.empty) skWrap.innerHTML = '<p class="fo-empty">表示できる交換流量がありません。閾値を下げるか、培地条件を確認してください。</p>';
     skWrap.append(sk.svg);
     host.append(skWrap);
+    const pb = document.createElement('div');
+    pb.id = 'foPipeBar';
+    pb.className = 'fo-pipe';
+    pb.innerHTML = '取り込む成分（左の帯）や菌種をクリックすると、その成分の<strong>代謝パイプライン</strong>（輸送・酵素反応）を中心代謝マップで開き、このFBA解の流量をアニメーション表示します。';
+    host.append(pb);
     if (sk.redox.length) {
       const rn = document.createElement('p');
       rn.className = 'fo-redox';
@@ -452,6 +506,14 @@ if (typeof document !== 'undefined' && typeof cyHost !== 'undefined') (() => {
   });
   host.addEventListener('click', async e => {
     if (e.target.id === 'foRecalc') { await load(true); render(); return; }
+    const pipe = e.target.closest('[data-pipe-pool],[data-pipe-species]');
+    if (pipe) {
+      const sp = pipe.dataset.pipeSpecies, pool = pipe.dataset.pipePool;
+      if (sp && pool) openPipeline(sp, pool);
+      else if (pool) pipelineChooser(pool);
+      else openPipeline(sp, null);
+      return;
+    }
     const cs = e.target.closest('[data-carbon]');
     if (cs) { carbonSpecies = cs.dataset.carbon; render(); return; }
     const sc = e.target.closest('tr[data-scenario]');
