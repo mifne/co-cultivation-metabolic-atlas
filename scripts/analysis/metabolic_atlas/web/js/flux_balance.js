@@ -77,6 +77,14 @@ if (typeof showCompoundStructure !== 'undefined') (() => {
   structurePreview.addEventListener('mouseenter', () => { clearTimeout(toolsTimer); toolsTimer = null; clearTimeout(structureTimer); });
   structurePreview.addEventListener('mouseleave', () => { clearTimeout(toolsTimer); toolsTimer = setTimeout(hideCompoundTools, 500); });
 
+  // Wheel over the panel scrolls the panel only; it must never reach the page or the map (which would close it).
+  structurePreview.addEventListener('wheel', e => {
+    e.stopPropagation();
+    const el = structurePreview;
+    const canScroll = el.scrollHeight > el.clientHeight + 1;
+    if (!canScroll || (e.deltaY < 0 && el.scrollTop <= 0) || (e.deltaY > 0 && el.scrollTop + el.clientHeight >= el.scrollHeight - 1)) e.preventDefault();
+  }, {passive: false});
+
   // Placement: our panel grows to its content (scrolls when taller than the window) and sits close to the node,
   // so the pointer can travel from the node onto it. The wavy omission marks are shown only when zoomed in
   // and scale with the zoom.
@@ -91,7 +99,8 @@ if (typeof showCompoundStructure !== 'undefined') (() => {
     compoundTools.style.visibility = z >= MIN_ZOOM_MARKS ? '' : 'hidden';
     compoundTools.style.transform = `translate(-50%, -50%) scale(${k.toFixed(2)})`;
     if (!structurePreview.classList.contains('hv-fba') || structurePreview.hidden) return;
-    const gap = 14 + 14 * k, w = structurePreview.offsetWidth || 330;
+    const gap = 14 + 14 * k, w = Math.min(330, innerWidth - 24);
+    structurePreview.style.width = w + 'px';
     structurePreview.style.height = 'auto';
     structurePreview.style.maxHeight = (innerHeight - 24) + 'px';
     const h = Math.min(structurePreview.scrollHeight + 2, innerHeight - 24);

@@ -8,7 +8,7 @@
     tca:{color:'#12876f',soft:'#e0f3ee',keys:['accoa','cit','icit','oxs','akg','succoa','succ','fum','mal','oaa']}
   };
 
-  const FONT = "'Inter','Noto Sans JP','Hiragino Sans','Yu Gothic UI',sans-serif";
+  const FONT = 'Inter, Noto Sans JP, Hiragino Sans, Yu Gothic UI, sans-serif';
   const rules = [
     {selector:'node',style:{'font-family':FONT}},
     {selector:'node[kind="fm"]',style:{'text-outline-color':'#fbfcfc','text-outline-width':4,'text-outline-opacity':1,'text-background-opacity':0,color:'#2b4653','font-weight':600,'border-width':3,'border-color':'#8aa1ab','background-color':'#fff'}},
