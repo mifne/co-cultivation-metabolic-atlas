@@ -74,8 +74,34 @@ if (typeof showCompoundStructure !== 'undefined') (() => {
 
   // The preview stays open while the pointer is on it (it used to be click-through and vanished
   // as soon as the cursor left the node), so its contents can be read and scrolled.
-  structurePreview.addEventListener('mouseenter', () => { clearTimeout(toolsTimer); toolsTimer = null; });
-  structurePreview.addEventListener('mouseleave', () => { clearTimeout(toolsTimer); toolsTimer = setTimeout(hideCompoundTools, 400); });
+  structurePreview.addEventListener('mouseenter', () => { clearTimeout(toolsTimer); toolsTimer = null; clearTimeout(structureTimer); });
+  structurePreview.addEventListener('mouseleave', () => { clearTimeout(toolsTimer); toolsTimer = setTimeout(hideCompoundTools, 500); });
+
+  // Placement: our panel grows to its content (scrolls when taller than the window) and sits close to the node,
+  // so the pointer can travel from the node onto it. The wavy omission marks are shown only when zoomed in
+  // and scale with the zoom.
+  const MIN_ZOOM_MARKS = 0.8;
+  const placeBase = positionCompoundTools;
+  positionCompoundTools = function (...args) {
+    placeBase.apply(this, args);
+    if (!hoveredCompound || !mapCy || mapCy.destroyed()) return;
+    const z = mapCy.zoom(), p = hoveredCompound.renderedPosition(), r = cyHost.getBoundingClientRect();
+    const x = r.left + p.x, y = r.top + p.y;
+    const k = Math.min(1.5, Math.max(0.8, z));
+    compoundTools.style.visibility = z >= MIN_ZOOM_MARKS ? '' : 'hidden';
+    compoundTools.style.transform = `translate(-50%, -50%) scale(${k.toFixed(2)})`;
+    if (!structurePreview.classList.contains('hv-fba') || structurePreview.hidden) return;
+    const gap = 14 + 14 * k, w = structurePreview.offsetWidth || 330;
+    structurePreview.style.height = 'auto';
+    structurePreview.style.maxHeight = (innerHeight - 24) + 'px';
+    const h = Math.min(structurePreview.scrollHeight + 2, innerHeight - 24);
+    const above = y - gap - 12, below = innerHeight - y - gap - 12;
+    const top = above >= h || above >= below ? Math.max(12, y - gap - h) : Math.min(innerHeight - h - 12, y + gap);
+    structurePreview.style.height = h + 'px';
+    structurePreview.style.top = top + 'px';
+    structurePreview.style.bottom = 'auto';
+    structurePreview.style.left = Math.max(12, Math.min(innerWidth - w - 12, x - w / 2)) + 'px';
+  };
 
   const base = showCompoundStructure;
   showCompoundStructure = async function (n, token) {

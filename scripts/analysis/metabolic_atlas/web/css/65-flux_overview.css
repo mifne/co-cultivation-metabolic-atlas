@@ -68,7 +68,7 @@ body[data-layer="fluxov"] #mappane{grid-template-columns:minmax(0,1fr)}
 .fo-pipe button{margin-left:6px}
 
 /* Hover panel (FBA data of a metabolite) */
-#structurePreview.hv-fba{width:330px;gap:0;padding:12px 14px 10px;overflow:hidden;font-size:12px;color:#243f49}
+#structurePreview.hv-fba{width:330px;gap:0;padding:12px 14px 10px;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;font-size:12px;color:#243f49}
 #structurePreview.hv-fba .hv-head{display:flex;gap:8px;align-items:baseline;margin-bottom:6px}
 #structurePreview.hv-fba code{color:#8aa0a8;font-size:10.5px}
 #structurePreview.hv-fba .hv-turn{margin:0 0 6px;color:#5f7681}
@@ -99,3 +99,4 @@ body[data-layer="fluxov"] #mappane{grid-template-columns:minmax(0,1fr)}
 .coreToggle.switch small{color:#8aa0a8;font-size:11px}
 #structurePreview:not([hidden]){pointer-events:auto}
 #structurePreview{user-select:text}
+#structurePreview.hv-fba{scrollbar-width:thin}
